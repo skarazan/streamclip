@@ -15,7 +15,7 @@ def _slug(text: str, n: int = 40) -> str:
     return s[:n] or "clip"
 
 
-def run(cfg: dict, vod_url: str | None = None) -> None:
+def run(cfg: dict, vod_url: str | None = None) -> dict:
     t0 = time.time()
     check_disk(cfg)
 
@@ -90,6 +90,7 @@ def run(cfg: dict, vod_url: str | None = None) -> None:
     out_dir = PROJECT_ROOT / cfg["output"]["dir"] / f"{date.today()}_{vod_id}"
     out_dir.mkdir(parents=True, exist_ok=True)
     style = cfg["style"]
+    results = []
 
     for i, m in enumerate(clips, 1):
         name = f"{i:02d}_{_slug(m.title)}"
@@ -122,6 +123,8 @@ def run(cfg: dict, vod_url: str | None = None) -> None:
             f"TITLE: {m.title}\n\nDESCRIPTION:\n{desc}\n"
             f"WHY: {m.reason}\nSOURCE: {vod_url} @ {m.start:.0f}s\n")
         print(f"  -> {final.relative_to(PROJECT_ROOT)}")
+        results.append({"file": str(final), "title": m.title, "hook": m.hook,
+                        "score": m.score, "start_s": m.start, "end_s": m.end})
         seg.unlink(missing_ok=True)  # keep disk usage low
 
     # cleanup big audio file, keep transcript cache
@@ -132,6 +135,7 @@ def run(cfg: dict, vod_url: str | None = None) -> None:
     print(f"\nDone in {mins:.1f} min. Shorts + titles in: "
           f"{out_dir.relative_to(PROJECT_ROOT)}/")
     print("Review each clip, then upload from the YouTube app/studio.")
+    return {"out_dir": str(out_dir), "vod_url": vod_url, "clips": results}
 
 
 def clean_work() -> None:

@@ -173,10 +173,24 @@ def _score_chunk_openai(client, model: str, body: str) -> dict:
     """OpenAI-compatible endpoint (OpenAI, Groq, Gemini, OpenRouter, ...).
     Tries strict JSON schema first; many free endpoints don't support it,
     so falls back to prompt-enforced JSON."""
+    import time as _time
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": body}]
+
+    def _create(**kw):
+        # free tiers rate-limit hard; back off and retry
+        for attempt in range(5):
+            try:
+                return client.chat.completions.create(**kw)
+            except Exception as e:
+                if "429" in str(e) or "rate" in str(e).lower():
+                    _time.sleep(15 * (attempt + 1))
+                    continue
+                raise
+        raise RuntimeError("rate-limited after 5 retries")
+
     try:
-        resp = client.chat.completions.create(
+        resp = _create(
             model=model,
             messages=messages,
             response_format={"type": "json_schema", "json_schema": {
@@ -188,7 +202,7 @@ def _score_chunk_openai(client, model: str, body: str) -> dict:
     messages[1]["content"] = (
         body + "\n\nRespond with ONLY a JSON object, no prose, matching exactly: "
         + json.dumps(MOMENT_SCHEMA))
-    resp = client.chat.completions.create(model=model, messages=messages)
+    resp = _create(model=model, messages=messages)
     return _extract_json(resp.choices[0].message.content)
 
 

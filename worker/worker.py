@@ -118,7 +118,7 @@ def main_loop() -> None:
         try:
             process(job)
             print(f"job {job['id']} done")
-        except Exception:
+        except (Exception, SystemExit):
             err = traceback.format_exc()
             print(f"job {job['id']} FAILED:\n{err}")
             try:
@@ -139,5 +139,18 @@ def local_run(spec: dict) -> None:
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "--local":
         local_run(json.loads(sys.argv[2]))
+    elif len(sys.argv) > 1 and sys.argv[1] == "--once":
+        job = claim_job()
+        if not job:
+            print("no queued jobs")
+        else:
+            print(f"claimed {job['id']}")
+            try:
+                process(job)
+                print("done")
+            except (Exception, SystemExit):
+                err = traceback.format_exc()
+                print(err)
+                fail(job, err)
     else:
         main_loop()

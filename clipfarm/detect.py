@@ -138,11 +138,12 @@ def _score_chunk_claude(client, model: str, body: str) -> dict:
 
 
 def _extract_json(text: str) -> dict:
-    """Pull the outermost JSON object out of possibly-fenced output."""
-    a, b = text.find("{"), text.rfind("}")
-    if a == -1 or b <= a:
+    """Parse the first complete JSON object in possibly-chatty output."""
+    a = text.find("{")
+    if a == -1:
         raise json.JSONDecodeError("no JSON object found", text, 0)
-    return json.loads(text[a:b + 1])
+    obj, _ = json.JSONDecoder().raw_decode(text[a:])
+    return obj
 
 
 def _score_chunk_claude_code(client, model: str, body: str) -> dict:

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StreamClip — Your stream, clipped while you sleep</title>
+<meta name="description" content="Connect Twitch. Stream. Wake up to scored, styled Shorts of your funniest moments — automatically.">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body{background:#0a0a0f;color:#e8e8f0;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif}
+  .glow{background:radial-gradient(600px circle at 50% 0%,rgba(145,70,255,.25),transparent 60%)}
+  .card{background:#12121a;border:1px solid #23233a}
+  .accent{color:#9146FF}
+  .btn{background:#9146FF;transition:.2s}.btn:hover{background:#7a2ff0;transform:translateY(-1px)}
+  .pill{border:1px solid #2e2e4a;background:#15151f}
+</style>
+</head>
+<body>
+<div class="glow">
+<nav class="max-w-5xl mx-auto flex items-center justify-between px-6 py-5">
+  <div class="text-xl font-black tracking-tight">Stream<span class="accent">Clip</span></div>
+  <a href="#waitlist" class="btn text-white text-sm font-bold px-4 py-2 rounded-lg">Get early access</a>
+</nav>
+
+<header class="max-w-5xl mx-auto px-6 pt-16 pb-20 text-center">
+  <p class="pill inline-block text-xs font-semibold px-3 py-1 rounded-full mb-6 text-purple-300">Built for Twitch gaming streamers</p>
+  <h1 class="text-4xl md:text-6xl font-black leading-tight tracking-tight">
+    You stream.<br>We clip. <span class="accent">While you sleep.</span>
+  </h1>
+  <p class="mt-6 text-lg text-gray-400 max-w-2xl mx-auto">
+    Connect your Twitch. A few hours after every stream, your funniest moments are
+    cut into captioned vertical Shorts — scored, titled, styled like <em>your</em> channel,
+    ready to post.
+  </p>
+  <div class="mt-8 flex gap-3 justify-center">
+    <a href="#waitlist" class="btn text-white font-bold px-6 py-3 rounded-xl">Join the waitlist</a>
+    <a href="#how" class="pill font-semibold px-6 py-3 rounded-xl text-gray-300">How it works</a>
+  </div>
+  <p class="mt-4 text-xs text-gray-500">14-day free trial at launch · no card required</p>
+</header>
+</div>
+
+<section id="how" class="max-w-5xl mx-auto px-6 py-16">
+  <h2 class="text-3xl font-black text-center mb-12">Zero-effort pipeline</h2>
+  <div class="grid md:grid-cols-3 gap-6">
+    <div class="card rounded-2xl p-6">
+      <div class="text-3xl mb-3">🔗</div>
+      <h3 class="font-bold text-lg mb-2">1 · Connect once</h3>
+      <p class="text-gray-400 text-sm">Link Twitch. Optionally link YouTube — we analyze your existing Shorts and clone your caption style, fonts, colors and layout automatically.</p>
+    </div>
+    <div class="card rounded-2xl p-6">
+      <div class="text-3xl mb-3">🎮</div>
+      <h3 class="font-bold text-lg mb-2">2 · Just stream</h3>
+      <p class="text-gray-400 text-sm">We detect when you go offline, grab the VOD, transcribe it and hunt for rage moments, one-liners and chat-breaking reactions.</p>
+    </div>
+    <div class="card rounded-2xl p-6">
+      <div class="text-3xl mb-3">📱</div>
+      <h3 class="font-bold text-lg mb-2">3 · Wake up to clips</h3>
+      <p class="text-gray-400 text-sm">Facecam-on-top vertical Shorts with animated captions, hook titles, virality scores and ready-made YouTube titles. Download and post.</p>
+    </div>
+  </div>
+</section>
+
+<section class="max-w-5xl mx-auto px-6 py-16">
+  <div class="grid md:grid-cols-2 gap-6">
+    <div class="card rounded-2xl p-8">
+      <h3 class="font-bold text-xl mb-3">🎯 Every clip gets a score</h3>
+      <p class="text-gray-400 text-sm">Our scorer is tuned for streamer comedy — not generic "engagement". See why each moment was picked and post only the bangers.</p>
+    </div>
+    <div class="card rounded-2xl p-8">
+      <h3 class="font-bold text-xl mb-3">🎨 Your style, not a template</h3>
+      <p class="text-gray-400 text-sm">Captions, hooks, watermark and layout match your channel's existing look. Your viewers won't tell the difference — except you post 10× more.</p>
+    </div>
+  </div>
+</section>
+
+<section class="max-w-5xl mx-auto px-6 py-16 text-center">
+  <div class="card rounded-3xl p-10 max-w-md mx-auto border-purple-900">
+    <p class="text-sm font-semibold text-purple-300 mb-2">LAUNCH PRICING</p>
+    <p class="text-5xl font-black">$14.99<span class="text-lg text-gray-400 font-semibold">/mo</span></p>
+    <ul class="text-left text-sm text-gray-300 mt-6 space-y-2">
+      <li>✅ 8 stream credits / month</li>
+      <li>✅ 3 scored Shorts per stream</li>
+      <li>✅ Automatic style cloning</li>
+      <li>✅ Ready-to-paste titles & tags</li>
+      <li>✅ Top-up credits anytime</li>
+    </ul>
+    <a href="#waitlist" class="btn block text-white font-bold px-6 py-3 rounded-xl mt-8">Lock in early-bird price</a>
+  </div>
+</section>
+
+<section id="waitlist" class="max-w-5xl mx-auto px-6 py-20 text-center">
+  <h2 class="text-3xl font-black mb-3">Be first in line</h2>
+  <p class="text-gray-400 mb-8">Early access rolls out to the waitlist in order. Founding users keep launch pricing forever.</p>
+  <!-- TODO: replace action with real endpoint (Tally/Formspree/Supabase) before deploy -->
+  <form action="#" method="POST" class="flex gap-2 max-w-md mx-auto">
+    <input type="text" name="twitch" required placeholder="Your Twitch username"
+           class="flex-1 rounded-xl px-4 py-3 bg-[#15151f] border border-[#2e2e4a] text-white placeholder-gray-500 focus:outline-none focus:border-purple-500">
+    <button class="btn text-white font-bold px-6 py-3 rounded-xl">Join</button>
+  </form>
+</section>
+
+<footer class="border-t border-[#1c1c2e] py-8 text-center text-xs text-gray-600">
+  StreamClip · you own your content — we only process VODs you authorize · contact: hello@streamclip.example
+</footer>
+</body>
+</html>

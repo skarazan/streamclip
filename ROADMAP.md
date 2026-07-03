@@ -4,16 +4,19 @@ Current state: working local pipeline (this repo) — VOD → whisper transcript
 LLM humor scoring → facecam-split styled shorts. That's the engine; the product
 is everything around it.
 
-## Phase 0 — Validation (now, $0)
+## Phase 0 — Validation (now, $0) — waitlist-first
 
-- [ ] Concierge test per BUSINESS.md (40 DMs, 3 free shorts each, ask for $15/mo)
+- [ ] Landing page (`web/landing/`) deployed to Vercel/Cloudflare Pages free;
+      wire waitlist form to Tally/Formspree free tier
+- [ ] Drive traffic $0: founder's channel posts daily (tool output = the demo),
+      short "how it was made" clips on TikTok/Twitter, gaming-streamer Discords
 - [ ] Run founder's channel daily with the pipeline; collect retention data
 - [ ] Switch dev/testing to free API tiers (`llm.base_url` — Groq / Gemini /
       OpenRouter free models; see config.yaml). Benchmark pick-quality of 2-3
       free models against claude-code baseline on the same VOD
 - [ ] Per-channel style config: extract `style:` into per-customer profiles
 
-**Exit gate: ≥5 paying commitments. No gate pass → no Phase 1.**
+**Exit gate: ≥30 waitlist signups with real Twitch usernames. No gate pass → change pitch/audience, not code.**
 
 ## Phase 1 — Manual-onboarding MVP (2-4 weeks of evenings)
 

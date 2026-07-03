@@ -36,7 +36,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     vod_work.mkdir(exist_ok=True)
 
     # 2. audio
-    audio_files = list(vod_work.glob("vod_audio.*"))
+    audio_files = [f for f in vod_work.glob("vod_audio.*")
+                   if not f.name.endswith((".part", ".ytdl"))]
     if audio_files:
         audio = audio_files[0]
         print(f"Audio already downloaded: {audio.name}")
@@ -66,7 +67,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         print(f"Scoring moments with {cfg['llm']['model']}...")
         moments = detect.score_with_llm(
             words, llm["model"], llm["chunk_minutes"],
-            base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"))
+            base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
+            streamer=cfg.get("streamer_name", "the streamer"))
         if not moments:
             print("  LLM found nothing usable; falling back to loudness.")
             moments = detect.moments_from_energy(profile)

@@ -36,7 +36,8 @@ def download_audio(vod_url: str, dest_dir: Path) -> Path:
         "yt-dlp", "-f", "Audio_Only/bestaudio/worst",
         "-o", out_tmpl, vod_url,
     ])
-    files = sorted(dest_dir.glob("vod_audio.*"))
+    files = sorted(f for f in dest_dir.glob("vod_audio.*")
+                   if not f.name.endswith((".part", ".ytdl")))
     if not files:
         raise RuntimeError("audio download produced no file")
     return files[0]

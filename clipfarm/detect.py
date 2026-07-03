@@ -32,9 +32,9 @@ MOMENT_SCHEMA = {
 }
 
 SYSTEM = """You find viral YouTube Shorts moments in Twitch stream transcripts.
-The streamer is CaseOh: loud, comedic reactions, rage moments, absurd one-liners,
-chat interactions. Viewers clip: screaming fits, unexpected jokes, self-roasts,
-food bits, game fails with big verbal reactions.
+The streamer is {streamer}: a gaming streamer. Viewers clip: big comedic
+reactions, rage moments, absurd one-liners, chat interactions, screaming fits,
+unexpected jokes, self-roasts, game fails with big verbal reactions.
 
 You get transcript lines as `[seconds] text`. Return the strongest candidate
 moments. Rules:
@@ -113,7 +113,7 @@ def llm_available(model: str, base_url: str | None = None,
     return cfg_dir.exists() and any(cfg_dir.glob("*.json"))
 
 
-def _score_chunk_claude(client, model: str, body: str) -> dict:
+def _score_chunk_claude(client, model: str, body: str, system: str = None) -> dict:
     import anthropic
     kwargs = {}
     if not model.startswith("claude-haiku"):
@@ -123,7 +123,7 @@ def _score_chunk_claude(client, model: str, body: str) -> dict:
         resp = client.messages.create(
             model=model,
             max_tokens=8000,
-            system=SYSTEM,
+            system=system or SYSTEM,
             output_config={"format": {"type": "json_schema",
                                       "schema": MOMENT_SCHEMA}},
             messages=[{"role": "user", "content": body}],
@@ -146,12 +146,12 @@ def _extract_json(text: str) -> dict:
     return obj
 
 
-def _score_chunk_claude_code(client, model: str, body: str) -> dict:
+def _score_chunk_claude_code(client, model: str, body: str, system: str = None) -> dict:
     """Score via the Claude Code CLI — runs on the user's Claude subscription,
     no API key needed."""
     import subprocess
     prompt = (
-        SYSTEM
+        (system or SYSTEM)
         + "\n\nRespond with ONLY a JSON object, no prose, matching exactly: "
         + json.dumps(MOMENT_SCHEMA)
         + "\n\nTranscript:\n" + body
@@ -169,12 +169,12 @@ def _score_chunk_claude_code(client, model: str, body: str) -> dict:
     return _extract_json(r.stdout)
 
 
-def _score_chunk_openai(client, model: str, body: str) -> dict:
+def _score_chunk_openai(client, model: str, body: str, system: str = None) -> dict:
     """OpenAI-compatible endpoint (OpenAI, Groq, Gemini, OpenRouter, ...).
     Tries strict JSON schema first; many free endpoints don't support it,
     so falls back to prompt-enforced JSON."""
     import time as _time
-    messages = [{"role": "system", "content": SYSTEM},
+    messages = [{"role": "system", "content": system or SYSTEM},
                 {"role": "user", "content": body}]
 
     def _create(**kw):
@@ -198,17 +198,22 @@ def _score_chunk_openai(client, model: str, body: str) -> dict:
         )
         return json.loads(resp.choices[0].message.content)
     except Exception:
-        pass  # endpoint likely doesn't support json_schema — prompt-enforce
+        pass  # endpoint likely doesn't support json_schema — degrade gracefully
     messages[1]["content"] = (
         body + "\n\nRespond with ONLY a JSON object, no prose, matching exactly: "
         + json.dumps(MOMENT_SCHEMA))
-    resp = _create(model=model, messages=messages)
+    try:
+        resp = _create(model=model, messages=messages,
+                       response_format={"type": "json_object"})
+    except Exception:
+        resp = _create(model=model, messages=messages)
     return _extract_json(resp.choices[0].message.content)
 
 
 def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
                    log=print, base_url: str | None = None,
-                   api_key_env: str | None = None) -> list[Moment]:
+                   api_key_env: str | None = None,
+                   streamer: str = "the streamer") -> list[Moment]:
     if model == "claude-code":
         client = None
         score_chunk = _score_chunk_claude_code
@@ -248,7 +253,8 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
             f"({chunk[0][0]/60:.0f}-{chunk[-1][0]/60:.0f} min)...")
         body = "\n".join(f"[{int(t)}] {text}" for t, text in chunk)
         try:
-            data = score_chunk(client, model, body)
+            data = score_chunk(client, model, body,
+                               SYSTEM.format(streamer=streamer))
         except Exception as e:
             log(f"  ! chunk {i} failed ({type(e).__name__}: {e}), skipping")
             continue
@@ -273,8 +279,8 @@ def moments_from_energy(profile: np.ndarray, clip_len: float = 45.0,
         scored.append((energy_score(profile, start, start + clip_len), start))
     scored.sort(reverse=True)
     return [
-        Moment(float(s), float(s + clip_len), 5.0, "CaseOh goes CRAZY on stream",
-               hook="He is *cooked*...")
+        Moment(float(s), float(s + clip_len), 5.0, "Stream highlight",
+               hook="It gets *crazy*...")
         for _, s in scored[:top_n]
     ]
 

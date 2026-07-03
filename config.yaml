@@ -64,7 +64,7 @@ style:
     outline: 7
 
   watermark:
-    text: "@CheeseDipClips"
+    text: ""
     font: "Marker Felt"
     font_size: 48
     color: "&H60FFFFFF"   # semi-transparent white

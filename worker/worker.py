@@ -62,6 +62,7 @@ def upload_r2(local: Path, key: str) -> None:
 def build_job_config(user: dict, job: dict) -> dict:
     cfg = load_config()
     cfg["clips"]["count"] = user.get("clips_per_stream", 3)
+    cfg["streamer_name"] = user.get("twitch_login", "the streamer")
     # per-customer style profile overrides the default style block
     for k, v in (user.get("style_profile") or {}).items():
         if isinstance(v, dict) and isinstance(cfg["style"].get(k), dict):

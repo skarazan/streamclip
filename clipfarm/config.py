@@ -9,8 +9,12 @@ _FFMPEG_FULL = Path("/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg")
 
 
 def ffmpeg_path() -> str:
-    """Prefer ffmpeg-full (has libass for captions) over the stripped brew build."""
-    return str(_FFMPEG_FULL) if _FFMPEG_FULL.exists() else "ffmpeg"
+    """Prefer ffmpeg-full (has libass for captions); always return absolute path
+    — yt-dlp's --ffmpeg-location treats a bare name as a filesystem path."""
+    if _FFMPEG_FULL.exists():
+        return str(_FFMPEG_FULL)
+    import shutil
+    return shutil.which("ffmpeg") or "ffmpeg"
 
 
 def load_env() -> None:

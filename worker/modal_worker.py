@@ -27,12 +27,14 @@ image = (
 )
 
 hf_cache = modal.Volume.from_name("streamclip-hf-cache", create_if_missing=True)
+work_vol = modal.Volume.from_name("streamclip-work", create_if_missing=True)
 
 
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("streamclip")],
-    volumes={"/root/.cache/huggingface": hf_cache},
+    volumes={"/root/.cache/huggingface": hf_cache,
+             "/root/app/work": work_vol},
     cpu=8.0,
     memory=8192,
     timeout=3500,
@@ -69,4 +71,5 @@ def drain():
                 print(f"couldn't mark failed: {e2}")
         n += 1
         hf_cache.commit()
+        work_vol.commit()
     print(f"queue drained, {n} job(s) processed")

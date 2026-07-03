@@ -184,7 +184,7 @@ def _score_chunk_openai(client, model: str, body: str) -> dict:
                 return client.chat.completions.create(**kw)
             except Exception as e:
                 if "429" in str(e) or "rate" in str(e).lower():
-                    _time.sleep(15 * (attempt + 1))
+                    _time.sleep(30 * (attempt + 1))
                     continue
                 raise
         raise RuntimeError("rate-limited after 5 retries")

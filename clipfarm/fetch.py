@@ -34,7 +34,7 @@ def download_audio(vod_url: str, dest_dir: Path) -> Path:
     out_tmpl = str(dest_dir / "vod_audio.%(ext)s")
     _run([
         "yt-dlp", "-f", "Audio_Only/bestaudio/worst",
-        "--no-part", "-o", out_tmpl, vod_url,
+        "-o", out_tmpl, vod_url,
     ])
     files = sorted(dest_dir.glob("vod_audio.*"))
     if not files:

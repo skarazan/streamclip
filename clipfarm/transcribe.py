@@ -36,7 +36,9 @@ def transcribe(audio_path: Path, model_name: str, compute_type: str,
             words.append(Word(round(w.start, 2), round(w.end, 2), w.word.strip()))
 
     if cache_path:
-        cache_path.write_text(json.dumps([asdict(w) for w in words]))
+        tmp = cache_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps([asdict(w) for w in words]))
+        tmp.replace(cache_path)  # atomic: parallel readers never see partials
     return words
 
 

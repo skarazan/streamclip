@@ -1,0 +1,6 @@
+yt-dlp
+faster-whisper
+numpy
+pyyaml
+anthropic
+opencv-python-headless<5

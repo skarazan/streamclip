@@ -1,0 +1,80 @@
+# clipfarm config
+
+channel:
+  # Twitch channel to pull VODs from
+  twitch_url: "https://www.twitch.tv/caseoh_"
+
+clips:
+  count: 3              # shorts to produce per run
+  min_length: 12        # seconds
+  max_length: 28        # short clips = retention; hard cap
+  quality: "best[height<=1080]"
+
+# Whisper transcription (runs locally, no API cost)
+transcribe:
+  model: "base.en"      # tiny.en = fastest, base.en = good balance, small.en = better
+  compute_type: "int8"  # int8 is fastest on M-series CPU
+
+# LLM moment scoring. Falls back to audio-loudness-only picking if no key.
+# Claude models need ANTHROPIC_API_KEY; gpt-* models need OPENAI_API_KEY.
+# Options, best picks -> cheapest:
+#   claude-opus-4-8   ~$0.50-1 per stream, best moments/titles
+#   claude-haiku-4-5  ~$0.10 per stream
+#   gpt-5-mini / gpt-4o-mini   few cents per stream
+llm:
+  # Providers:
+  #   claude-code           -> local claude CLI on a Claude subscription ($0)
+  #   claude-* models       -> Anthropic API (ANTHROPIC_API_KEY)
+  #   gpt-* models          -> OpenAI API (OPENAI_API_KEY)
+  #   base_url set          -> ANY OpenAI-compatible endpoint, e.g. FREE tiers:
+  #     Groq:       base_url: https://api.groq.com/openai/v1        api_key_env: GROQ_API_KEY
+  #     Gemini:     base_url: https://generativelanguage.googleapis.com/v1beta/openai/   api_key_env: GEMINI_API_KEY
+  #     OpenRouter: base_url: https://openrouter.ai/api/v1          api_key_env: OPENROUTER_API_KEY  (":free" models)
+  model: "claude-code"
+  base_url: null
+  api_key_env: null
+  chunk_minutes: 20     # transcript minutes per scoring request
+
+# Visual style — matched to @CheeseDipClips
+style:
+  # split = facecam auto-detected and stacked on top of gameplay.
+  # Falls back to full-frame crop when no face is found in a segment.
+  layout: "split"       # split | full
+  split_top: 0.42       # fraction of the short occupied by the cam pane
+  crop: "center"        # full-frame mode: which part of 16:9 frame to keep
+
+  # speech captions: plain white bold, 1-2 words, as-spoken case
+  font: "Arial Rounded MT Bold"
+  font_size: 74
+  primary_color: "&H00FFFFFF"    # ASS BGR: white
+  highlight_color: "&H00FFFFFF"  # active word same color, just pops in size
+  outline_color: "&H00000000"
+  outline: 6
+  caption_pos: 0.72
+  words_per_line: 2
+  uppercase: false
+
+  # hook title: persistent line upper-middle, one keyword colored
+  hook:
+    font: "Arial Rounded MT Bold"
+    font_size: 84
+    pos: 0.30
+    color: "&H00FFFFFF"
+    keyword_colors: ["&H0035D622", "&H002424FF"]  # green, red — picked per clip
+    outline: 7
+
+  watermark:
+    text: "@CheeseDipClips"
+    font: "Marker Felt"
+    font_size: 48
+    color: "&H60FFFFFF"   # semi-transparent white
+
+output:
+  dir: "out"
+  description_template: |
+    {title} #caseoh #caseohgames #shorts #gaming #funny
+
+    Clipped from CaseOh's stream. Full VOD on his channel.
+
+safety:
+  min_free_gb: 4        # abort if less free disk than this

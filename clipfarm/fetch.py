@@ -34,6 +34,7 @@ def download_audio(vod_url: str, dest_dir: Path) -> Path:
     out_tmpl = str(dest_dir / "vod_audio.%(ext)s")
     _run([
         "yt-dlp", "-f", "Audio_Only/bestaudio/worst",
+        "--concurrent-fragments", "8",
         "--socket-timeout", "30", "--retries", "5",
         "-o", out_tmpl, vod_url,
     ])

@@ -57,3 +57,45 @@ infra/           # deploy scripts / IaC
 
 Personal-use copy lives at `~/clipfarm` (untracked, with .env and claude-code
 scoring) — this repo is the product line; don't develop in the personal copy.
+
+---
+
+# EXECUTION PLAN v2 — 2026-07-04 (current state -> paid product)
+
+State now: engine + cloud worker + dashboard + auth + credits all LIVE at $0/mo.
+Missing: public URL, job-creation UI, EventSub, styles, billing, legal, launch.
+
+## Phase 1 — Usable private product (this week)
+| # | Task | Owner | Done when |
+|---|---|---|---|
+| 1.1 | Pick name, buy domain, grab socials | YOU | domain in hand |
+| 1.2 | Vercel account + connect repo | YOU | then me: deploy, env vars, new redirect URLs in Twitch+Supabase | app on real URL |
+| 1.3 | "Clip a VOD" button + POST /api/jobs (credit check, URL validation) | ME | user can self-serve a job |
+| 1.4 | Deploy scorer fallback chain (rerun verification test first) | ME | quota outage != bad clips |
+| 1.5 | 4 style presets + picker (fonts/colors/watermark text) | ME | new user picks a look in onboarding |
+| 1.6 | Email "your clips are ready" (Resend free) | ME | notification lands |
+| 1.7 | Worker errors -> Discord webhook | ME | failures ping us, not Modal email |
+
+## Phase 2 — The automation edge
+| 2.1 | EventSub: stream.offline webhook route (needs 1.2 URL) | ME | streamer goes offline -> job appears |
+| 2.2 | Per-user auto-clip toggle wires to EventSub subscribe/unsubscribe | ME | opt-in automation |
+| 2.3 | Delay tuning (VOD availability) + dedupe per stream | ME | no double jobs |
+
+## Phase 3 — Money
+| 3.1 | Legal identity (sole prop / IE where tax-resident) | YOU | can open Stripe |
+| 3.2 | Stripe: $14.99/mo Payment Link (8 credits/mo) + top-up packs (5 for $7.50) | YOU acct, ME wiring | checkout works |
+| 3.3 | Stripe webhook -> credit grants + plan flag | ME | payment = credits, automatic |
+| 3.4 | ToS + Privacy pages (own-VOD rights, music disclaimer, credits policy) | ME draft, YOU approve | published |
+| 3.5 | Pricing page + final landing copy (use competitor receipts) | ME | public story matches product |
+
+## Phase 4 — Beta -> launch
+| 4.1 | 5-10 beta streamers (Discords, r/Twitch, your community); founder QA every batch | YOU+ME | 10 active users |
+| 4.2 | Feedback buttons wired (column exists) -> scorer prompt tuning | ME | thumbs data flowing |
+| 4.3 | Demo video (15s script in DECISIONS) + Wayin/Opus comparison post | YOU film, ME cut | assets ready |
+| 4.4 | Public launch: PH + build-in-public + daily channel output | YOU | first stranger signup |
+| 4.5 | Metrics: signups/activation/wk2 retention/MRR/churn on /admin | ME | weekly review vs kill criteria |
+
+## Standing ops
+- Modal credit + Gemini quota watch; flip to paid scoring (~$0.05/stream) at first paying-customer pinch
+- Benchmark scorers quarterly (3.5-flash vs alternatives, same VOD)
+- Kill criteria unchanged: <15 paying at 90d post-beta -> stop/pivot

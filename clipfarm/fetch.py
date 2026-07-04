@@ -7,8 +7,8 @@ from pathlib import Path
 from .config import ffmpeg_path
 
 
-def _run(cmd: list[str]) -> str:
-    r = subprocess.run(cmd, capture_output=True, text=True)
+def _run(cmd: list[str], timeout: int = 1800) -> str:
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0:
         raise RuntimeError(f"command failed: {' '.join(cmd)}\n{r.stderr[-2000:]}")
     return r.stdout
@@ -34,6 +34,7 @@ def download_audio(vod_url: str, dest_dir: Path) -> Path:
     out_tmpl = str(dest_dir / "vod_audio.%(ext)s")
     _run([
         "yt-dlp", "-f", "Audio_Only/bestaudio/worst",
+        "--socket-timeout", "30", "--retries", "5",
         "-o", out_tmpl, vod_url,
     ])
     files = sorted(f for f in dest_dir.glob("vod_audio.*")
@@ -51,6 +52,7 @@ def download_segment(vod_url: str, start: float, end: float, dest: Path,
     _run([
         "yt-dlp", "-f", quality,
         "--ffmpeg-location", ffmpeg_path(),
+        "--socket-timeout", "30", "--retries", "5",
         "--download-sections", section,
         "--force-keyframes-at-cuts",   # re-encodes at cuts => exact boundaries
         "--no-part",

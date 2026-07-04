@@ -19,7 +19,11 @@ image = (
     .pip_install(
         "yt-dlp", "faster-whisper", "numpy", "pyyaml",
         "httpx", "boto3", "openai", "opencv-python-headless<5",
+        "nvidia-cublas-cu12", "nvidia-cudnn-cu12==9.*",
     )
+    .env({"LD_LIBRARY_PATH":
+          "/usr/local/lib/python3.12/site-packages/nvidia/cublas/lib:"
+          "/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib"})
     .add_local_dir(str(REPO / "clipfarm"), remote_path="/root/app/clipfarm")
     .add_local_file(str(REPO / "config.yaml"), remote_path="/root/app/config.yaml")
     .add_local_file(str(REPO / "worker/worker.py"),
@@ -35,9 +39,10 @@ work_vol = modal.Volume.from_name("streamclip-work", create_if_missing=True)
     secrets=[modal.Secret.from_name("streamclip")],
     volumes={"/root/.cache/huggingface": hf_cache,
              "/root/app/work": work_vol},
-    cpu=8.0,
+    gpu="T4",
+    cpu=4.0,
     memory=8192,
-    timeout=3500,
+    timeout=7200,
     schedule=modal.Period(minutes=5),
 )
 def drain():
@@ -53,6 +58,7 @@ def drain():
 
     import worker
 
+    worker.requeue_stale()
     n = 0
     while True:
         job = worker.claim_job()

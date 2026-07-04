@@ -26,7 +26,14 @@ def transcribe(audio_path: Path, model_name: str, compute_type: str,
 
     from faster_whisper import WhisperModel
 
-    model = WhisperModel(model_name, device="cpu", compute_type=compute_type)
+    device, ct = "cpu", compute_type
+    try:
+        import ctranslate2
+        if ctranslate2.get_cuda_device_count() > 0:
+            device, ct = "cuda", "float16"
+    except Exception:
+        pass
+    model = WhisperModel(model_name, device=device, compute_type=ct)
     segments, info = model.transcribe(
         str(audio_path), word_timestamps=True, vad_filter=True, language="en",
     )

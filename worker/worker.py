@@ -39,6 +39,15 @@ def sb(method: str, path: str, **kwargs) -> httpx.Response:
     return r
 
 
+def requeue_stale(minutes: int = 90) -> None:
+    """Jobs stuck 'running' with no live worker (container killed) go back."""
+    import datetime
+    cutoff = (datetime.datetime.now(datetime.timezone.utc)
+              - datetime.timedelta(minutes=minutes)).isoformat()
+    sb("PATCH", f"/rest/v1/jobs?status=eq.running&started_at=lt.{cutoff}",
+       json={"status": "queued", "worker_id": None, "started_at": None})
+
+
 def claim_job() -> dict | None:
     r = sb("POST", "/rest/v1/rpc/claim_job", json={"p_worker": WORKER_ID})
     rows = r.json()

@@ -39,7 +39,7 @@ def sb(method: str, path: str, **kwargs) -> httpx.Response:
     return r
 
 
-def requeue_stale(minutes: int = 90) -> None:
+def requeue_stale(minutes: int = 150) -> None:  # must exceed function timeout
     """Jobs stuck 'running' with no live worker (container killed) go back."""
     import datetime
     cutoff = (datetime.datetime.now(datetime.timezone.utc)

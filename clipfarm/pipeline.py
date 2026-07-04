@@ -71,7 +71,15 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         print(f"Scoring moments with {cfg['llm']['model']}...")
         def _score_log(msg):
             print(msg)
-            report("scoring", str(msg).strip())
+            m = str(msg).strip()
+            # customers see progress, not plumbing
+            if m.startswith("!"):
+                m = "switching to a backup AI model..."
+            elif m.startswith("(scored with fallback"):
+                m = ""
+            elif "chunk" in m:
+                m = m.replace("LLM scoring ", "").split("(")[0].strip()
+            report("scoring", m)
         moments = detect.score_with_llm(
             words, llm["model"], llm["chunk_minutes"], log=_score_log,
             base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),

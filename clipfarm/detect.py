@@ -192,7 +192,7 @@ def _score_chunk_openai(client, model: str, body: str, system: str = None) -> di
 
     try:
         kw = {}
-        if "gemini" in model:
+        if "gemini-2.5" in model or "gemini-3" in model:
             kw["reasoning_effort"] = "none"
         resp = _create(
             model=model,

@@ -30,7 +30,7 @@ llm:
   #     Groq:       base_url: https://api.groq.com/openai/v1        api_key_env: GROQ_API_KEY
   #     Gemini:     base_url: https://generativelanguage.googleapis.com/v1beta/openai/   api_key_env: GEMINI_API_KEY
   #     OpenRouter: base_url: https://openrouter.ai/api/v1          api_key_env: OPENROUTER_API_KEY  (":free" models)
-  model: "gemini-2.5-flash"
+  model: "gemini-2.0-flash"
   base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
   api_key_env: "GEMINI_API_KEY"
   chunk_minutes: 8      # small chunks: free-tier TPM limits

@@ -16,6 +16,8 @@ from clipfarm import detect  # noqa: E402
 from clipfarm.transcribe import Word  # noqa: E402
 
 CANDIDATES = [
+    ("gpt-5-nano", "openai"),
+    ("gpt-5-mini", "openai"),
     ("gemini-3.5-flash", "gemini"),
     ("gemini-3.1-flash-lite", "gemini"),
     ("qwen/qwen3.6-27b", "groq"),
@@ -25,8 +27,10 @@ CANDIDATES = [
 BASE = {
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
     "groq": "https://api.groq.com/openai/v1",
+    "openai": None,
 }
-KEY_ENV = {"gemini": "GEMINI_API_KEY", "groq": "GROQ_API_KEY"}
+KEY_ENV = {"gemini": "GEMINI_API_KEY", "groq": "GROQ_API_KEY",
+           "openai": "OPENAI_API_KEY"}
 
 # comedy-dense windows of the CaseOh test VOD (seconds)
 WINDOWS = [(1900, 2400), (8600, 9100)]
@@ -40,7 +44,10 @@ def chunk_text(words, lo, hi):
 def run_model(model, provider, body):
     import os
     from openai import OpenAI
-    client = OpenAI(base_url=BASE[provider], api_key=os.environ[KEY_ENV[provider]])
+    kw = {"api_key": os.environ[KEY_ENV[provider]]}
+    if BASE[provider]:
+        kw["base_url"] = BASE[provider]
+    client = OpenAI(**kw)
     t0 = time.time()
     data = detect._score_chunk_openai(
         client, model, body, detect.SYSTEM.format(streamer="caseoh_"))

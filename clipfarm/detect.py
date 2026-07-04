@@ -39,6 +39,11 @@ unexpected jokes, self-roasts, game fails with big verbal reactions.
 You get transcript lines as `[seconds] text`. Return the strongest candidate
 moments. Rules:
 - score 1-10: 10 = guaranteed viral, 5 = decent, skip anything under 5
+- CRITICAL: the transcript mixes the STREAMER's voice with in-game dialogue
+  (NPCs, cutscenes, videos on screen). Only the streamer's own reactions count —
+  loud, first-person, addressed to chat or the game. NEVER pick a moment whose
+  highlight is a game character's line; game dialogue can only be setup for the
+  streamer's reaction
 - start/end in seconds; capture the setup AND the reaction/punchline, nothing more
 - moments must be 12-28 seconds long. Aim for 15-20 — short clips retain best.
   Cut every second of dead air; start as late as possible, end right after the
@@ -327,7 +332,10 @@ def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
             m.start = max(0.0, m.start - pad)
             m.end = m.start + min_len
         m.energy = energy_score(profile, m.start, m.end)
-        m.combined = m.score + 2.0 * m.energy  # loudness worth up to +2
+        m.combined = m.score + 3.0 * m.energy  # loudness = streamer, not NPC
+
+    # near-silent "moments" are usually game dialogue the LLM mistook for content
+    moments = [m for m in moments if m.energy >= 0.12]
 
     picked: list[Moment] = []
     for m in sorted(moments, key=lambda x: x.combined, reverse=True):

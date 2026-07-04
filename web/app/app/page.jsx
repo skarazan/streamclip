@@ -35,7 +35,7 @@ export default function Home() {
         </svg>
         Continue with Twitch
       </button>
-      <p className="mt-4 text-xs text-gray-500">Free trial — 2 stream credits, no card.</p>
+      <p className="mt-4 text-xs text-gray-500">Free trial — 2 gigawatts, no card. ⚡</p>
     </main>
   );
 }

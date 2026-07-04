@@ -52,7 +52,7 @@ export default async function Dashboard() {
         <div className="flex items-center gap-5">
           <ClipCount initial={profile?.clips_per_stream} />
           <div className="text-sm font-bold px-4 py-2 rounded-full border border-[#2e2e4a] bg-[#15151f]">
-            ⚡ {profile?.credits ?? 0} credits
+            ⚡ {profile?.credits ?? 0} GW
           </div>
         </div>
       </div>

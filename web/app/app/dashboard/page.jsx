@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { serverClient } from "../../lib/supabase";
+import ActiveJobs from "./ActiveJobs";
 
 const s3 = new S3Client({
   region: "auto",
@@ -25,10 +26,13 @@ export default async function Dashboard() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) redirect("/");
 
-  const [{ data: profile }, { data: clips }] = await Promise.all([
+  const [{ data: profile }, { data: clips }, { data: history }] = await Promise.all([
     sb.from("users").select("*").eq("id", user.id).single(),
     sb.from("clips").select("*").eq("user_id", user.id)
       .order("created_at", { ascending: false }),
+    sb.from("jobs").select("id, vod_url, status, created_at, finished_at")
+      .eq("user_id", user.id).in("status", ["done", "failed"])
+      .order("created_at", { ascending: false }).limit(10),
   ]);
 
   const withUrls = await Promise.all(
@@ -48,6 +52,8 @@ export default async function Dashboard() {
           ⚡ {profile?.credits ?? 0} credits
         </div>
       </div>
+
+      <ActiveJobs />
 
       {withUrls.length === 0 ? (
         <div className="text-center py-24 text-gray-400">
@@ -76,6 +82,35 @@ export default async function Dashboard() {
               </a>
             </div>
           ))}
+        </div>
+      )}
+      {(history || []).length > 0 && (
+        <div className="mt-14">
+          <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wide mb-3">
+            Processed streams
+          </h2>
+          <div className="rounded-2xl border border-[#23233a] bg-[#12121a] divide-y divide-[#1c1c2e]">
+            {history.map((h) => {
+              const n = (clips || []).filter((c) => c.job_id === h.id).length;
+              return (
+                <div key={h.id} className="flex items-center justify-between px-5 py-3 text-sm">
+                  <a href={h.vod_url} target="_blank" className="text-purple-300 hover:underline">
+                    {h.vod_url.replace("https://www.", "")}
+                  </a>
+                  <div className="flex items-center gap-4">
+                    <span className="text-gray-400">
+                      {new Date(h.finished_at || h.created_at).toLocaleString()}
+                    </span>
+                    {h.status === "done" ? (
+                      <span className="text-green-400 font-semibold">{n} clips</span>
+                    ) : (
+                      <span className="text-red-400 font-semibold">failed</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </main>

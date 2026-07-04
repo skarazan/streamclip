@@ -81,10 +81,23 @@ def build_job_config(user: dict, job: dict) -> dict:
     return cfg
 
 
+def set_progress(job_id: str, stage: str, detail: str = "") -> None:
+    import datetime
+    try:
+        sb("PATCH", f"/rest/v1/jobs?id=eq.{job_id}",
+           json={"progress": {"stage": stage, "detail": detail,
+                 "at": datetime.datetime.now(datetime.timezone.utc)
+                       .strftime("%Y-%m-%dT%H:%M:%SZ")}})
+    except Exception:
+        pass  # progress is cosmetic; never fail a job over it
+
+
 def process(job: dict) -> None:
     user = get_user(job["user_id"])
     cfg = build_job_config(user, job)
+    cfg["_progress"] = lambda stage, detail="": set_progress(job["id"], stage, detail)
     result = pipeline.run(cfg, vod_url=job["vod_url"])
+    set_progress(job["id"], "uploading")
 
     clip_rows = []
     for i, c in enumerate(result["clips"], 1):
@@ -99,7 +112,8 @@ def process(job: dict) -> None:
         sb("POST", "/rest/v1/clips", json=clip_rows)
 
     sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
-       json={"status": "done", "finished_at": "now()"})
+       json={"status": "done", "finished_at": "now()",
+             "progress": {"stage": "done", "detail": ""}})
     sb("POST", "/rest/v1/credit_events",
        json={"user_id": job["user_id"], "delta": -1, "reason": "job",
              "job_id": job["id"]})

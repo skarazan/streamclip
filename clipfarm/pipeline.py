@@ -17,6 +17,7 @@ def _slug(text: str, n: int = 40) -> str:
 
 def run(cfg: dict, vod_url: str | None = None) -> dict:
     t0 = time.time()
+    report = cfg.get("_progress") or (lambda stage, detail="": None)
     check_disk(cfg)
 
     work = PROJECT_ROOT / "work"
@@ -27,6 +28,7 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         title = "stream"
         print(f"Using VOD: {vod_url}")
     else:
+        report("finding_vod")
         print("Finding latest VOD...")
         vod_url, title = fetch.latest_vod_url(cfg["channel"]["twitch_url"])
         print(f"Latest VOD: {title}\n  {vod_url}")
@@ -42,12 +44,14 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         audio = audio_files[0]
         print(f"Audio already downloaded: {audio.name}")
     else:
+        report("downloading_audio")
         print("Downloading audio track (this is the small download)...")
         audio = fetch.download_audio(vod_url, vod_work)
         print(f"  -> {audio.name} ({audio.stat().st_size / 1e6:.0f} MB, "
               f"{free_gb():.1f} GB disk left)")
 
     # 3. transcribe (cached)
+    report("transcribing")
     print("Transcribing locally with Whisper (long streams take a while)...")
     words = transcribe.transcribe(
         audio, cfg["transcribe"]["model"], cfg["transcribe"]["compute_type"],
@@ -65,8 +69,11 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     if words and detect.llm_available(
             llm["model"], llm.get("base_url"), llm.get("api_key_env")):
         print(f"Scoring moments with {cfg['llm']['model']}...")
+        def _score_log(msg):
+            print(msg)
+            report("scoring", str(msg).strip())
         moments = detect.score_with_llm(
-            words, llm["model"], llm["chunk_minutes"],
+            words, llm["model"], llm["chunk_minutes"], log=_score_log,
             base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
             streamer=cfg.get("streamer_name", "the streamer"))
         if not moments:
@@ -97,6 +104,7 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     for i, m in enumerate(clips, 1):
         name = f"{i:02d}_{_slug(m.title)}"
         seg = vod_work / f"seg_{i:02d}.mp4"
+        report("clipping", f"clip {i}/{len(clips)}: downloading moment")
         print(f"[{i}/{len(clips)}] Downloading segment "
               f"{m.start:.0f}s-{m.end:.0f}s...")
         seg = fetch.download_segment(
@@ -109,6 +117,7 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
             print(f"[{i}/{len(clips)}] Facecam "
                   f"{'found -> split layout' if cam else 'not found -> full frame'}")
 
+        report("rendering", f"clip {i}/{len(clips)}: captions + layout")
         print(f"[{i}/{len(clips)}] Rendering short...")
         top_frac = style.get("split_top", 0.42)
         ass = render.build_ass(words, m.start, m.end, style,

@@ -21,6 +21,9 @@ OWN content (clean IP position — we are a tool, not a clip farm).
 | Eklipse | free tier / ~$13-16 | gaming-focused, closest competitor |
 | StreamLadder | ~free / ~$20 | editor-first, manual clip conversion |
 | Klap, Vizard | ~$23-29 | generic video repurposing |
+| **WayinVideo (wayin.ai)** | $4.99-9.58 entry, $70 PRO+ | aggressive new entrant: paste-Twitch-VOD-link -> 50-100 clips sorted by "viral potential", built-in auto-publish scheduler (TikTok/Shorts/Reels), credits system, heavy SEO content marketing. Weaknesses: paste-link manual trigger (no stream-end automation), volume-over-curation (100 maybes vs few bangers), limited editing, no channel style cloning, generic multi-vertical platform. |
+
+**Wayin implications (Jul 2026):** (1) price pressure at the bottom — don't fight it; position against clip-slop: "3 posted-ready bangers, not 100 maybes to sort through". (2) their auto-publish scheduler is a retention lock (connected socials = churn resistance) — pull auto-post earlier on our roadmap. (3) nobody confirmed has true stream-end automation — EventSub stays our sharpest edge; ship it. (4) their existence + SEO spend = market validation.
 
 **Wedge:** gaming-native (humor scoring prompted for streamer comedy, not
 "engagement"), facecam auto-split matched to clip-channel meta, style cloning

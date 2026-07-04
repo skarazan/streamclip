@@ -67,7 +67,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     # 5. moments
     llm = cfg["llm"]
     if words and detect.llm_available(
-            llm["model"], llm.get("base_url"), llm.get("api_key_env")):
+            llm["model"], llm.get("base_url"), llm.get("api_key_env"),
+            llm.get("fallback_models")):
         print(f"Scoring moments with {cfg['llm']['model']}...")
         def _score_log(msg):
             print(msg)

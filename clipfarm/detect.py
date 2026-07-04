@@ -104,8 +104,19 @@ def _claude_cli() -> str | None:
 
 
 def llm_available(model: str, base_url: str | None = None,
-                  api_key_env: str | None = None) -> bool:
+                  api_key_env: str | None = None,
+                  fallback_models: list[str] | None = None) -> bool:
     import os
+    # chain-aware: any credential for any rung means scoring can proceed
+    if fallback_models:
+        for name in [model] + fallback_models:
+            if name.startswith("gemini") and os.environ.get("GEMINI_API_KEY"):
+                return True
+            if _is_openai(name) and os.environ.get("OPENAI_API_KEY"):
+                return True
+            if not name.startswith(("gemini", "gpt-", "claude")) \
+                    and os.environ.get("GROQ_API_KEY"):
+                return True
     if model == "claude-code":
         return _claude_cli() is not None
     if base_url:

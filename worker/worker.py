@@ -43,7 +43,7 @@ def requeue_stale(minutes: int = 90) -> None:
     """Jobs stuck 'running' with no live worker (container killed) go back."""
     import datetime
     cutoff = (datetime.datetime.now(datetime.timezone.utc)
-              - datetime.timedelta(minutes=minutes)).isoformat()
+              - datetime.timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
     sb("PATCH", f"/rest/v1/jobs?status=eq.running&started_at=lt.{cutoff}",
        json={"status": "queued", "worker_id": None, "started_at": None})
 

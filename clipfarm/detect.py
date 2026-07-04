@@ -174,6 +174,7 @@ def _score_chunk_openai(client, model: str, body: str, system: str = None) -> di
     Tries strict JSON schema first; many free endpoints don't support it,
     so falls back to prompt-enforced JSON."""
     import time as _time
+    _time.sleep(7)  # pace for free-tier RPM limits instead of burst+429
     messages = [{"role": "system", "content": system or SYSTEM},
                 {"role": "user", "content": body}]
 
@@ -190,11 +191,15 @@ def _score_chunk_openai(client, model: str, body: str, system: str = None) -> di
         raise RuntimeError("rate-limited after 5 retries")
 
     try:
+        kw = {}
+        if "gemini" in model:
+            kw["reasoning_effort"] = "none"
         resp = _create(
             model=model,
             messages=messages,
             response_format={"type": "json_schema", "json_schema": {
                 "name": "moments", "schema": MOMENT_SCHEMA, "strict": True}},
+            **kw,
         )
         return json.loads(resp.choices[0].message.content)
     except Exception:

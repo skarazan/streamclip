@@ -31,6 +31,8 @@ llm:
   #     Gemini:     base_url: https://generativelanguage.googleapis.com/v1beta/openai/   api_key_env: GEMINI_API_KEY
   #     OpenRouter: base_url: https://openrouter.ai/api/v1          api_key_env: OPENROUTER_API_KEY  (":free" models)
   model: "gemini-3.5-flash"
+  # tried in order when the model above is rate-limited/exhausted
+  fallback_models: ["gemini-3.1-flash-lite", "gemini-2.0-flash", "llama-3.3-70b-versatile"]
   base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
   api_key_env: "GEMINI_API_KEY"
   chunk_minutes: 8      # small chunks: free-tier TPM limits

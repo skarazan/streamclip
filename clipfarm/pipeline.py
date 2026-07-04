@@ -75,7 +75,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         moments = detect.score_with_llm(
             words, llm["model"], llm["chunk_minutes"], log=_score_log,
             base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
-            streamer=cfg.get("streamer_name", "the streamer"))
+            streamer=cfg.get("streamer_name", "the streamer"),
+            fallback_models=llm.get("fallback_models"))
         if not moments:
             print("  LLM found nothing usable; falling back to loudness.")
             moments = detect.moments_from_energy(profile)

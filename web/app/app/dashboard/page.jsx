@@ -3,6 +3,7 @@ import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { serverClient } from "../../lib/supabase";
 import ActiveJobs from "./ActiveJobs";
+import ClipCount from "./ClipCount";
 
 const s3 = new S3Client({
   region: "auto",
@@ -48,8 +49,11 @@ export default async function Dashboard() {
             {profile?.twitch_login}
           </span>
         </div>
-        <div className="text-sm font-bold px-4 py-2 rounded-full border border-[#2e2e4a] bg-[#15151f]">
-          ⚡ {profile?.credits ?? 0} credits
+        <div className="flex items-center gap-5">
+          <ClipCount initial={profile?.clips_per_stream} />
+          <div className="text-sm font-bold px-4 py-2 rounded-full border border-[#2e2e4a] bg-[#15151f]">
+            ⚡ {profile?.credits ?? 0} credits
+          </div>
         </div>
       </div>
 

@@ -218,25 +218,41 @@ def _score_chunk_openai(client, model: str, body: str, system: str = None) -> di
 def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
                    log=print, base_url: str | None = None,
                    api_key_env: str | None = None,
-                   streamer: str = "the streamer") -> list[Moment]:
-    if model == "claude-code":
-        client = None
-        score_chunk = _score_chunk_claude_code
-    elif base_url:
-        # any OpenAI-compatible endpoint: Groq, Gemini, OpenRouter free tiers...
+                   streamer: str = "the streamer",
+                   fallback_models: list[str] | None = None) -> list[Moment]:
+    def _fn_for(name: str):
+        if name == "claude-code":
+            return _score_chunk_claude_code
+        if name.startswith("claude"):
+            return _score_chunk_claude
+        return _score_chunk_openai
+
+    _models = [model] + [m for m in (fallback_models or []) if m != model]
+    _clients = {}
+
+    def _client_for(name: str):
+        if name in _clients:
+            return _clients[name]
         import os
         from openai import OpenAI
-        client = OpenAI(base_url=base_url,
-                        api_key=os.environ[api_key_env or "OPENAI_API_KEY"])
-        score_chunk = _score_chunk_openai
-    elif _is_openai(model):
-        from openai import OpenAI
-        client = OpenAI()
-        score_chunk = _score_chunk_openai
-    else:
-        import anthropic
-        client = anthropic.Anthropic()
-        score_chunk = _score_chunk_claude
+        if name == "claude-code":
+            c = None
+        elif name.startswith("claude"):
+            import anthropic
+            c = anthropic.Anthropic()
+        elif name == model and base_url:
+            c = OpenAI(base_url=base_url,
+                       api_key=os.environ[api_key_env or "OPENAI_API_KEY"])
+        elif name.startswith("gemini"):
+            c = OpenAI(base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                       api_key=os.environ["GEMINI_API_KEY"])
+        elif _is_openai(name):
+            c = OpenAI()
+        else:  # llama/qwen/etc -> Groq
+            c = OpenAI(base_url="https://api.groq.com/openai/v1",
+                       api_key=os.environ["GROQ_API_KEY"])
+        _clients[name] = c
+        return c
 
     lines = _transcript_lines(words)
     chunk_s = chunk_minutes * 60
@@ -257,11 +273,20 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
         log(f"  LLM scoring chunk {i}/{len(chunks)} "
             f"({chunk[0][0]/60:.0f}-{chunk[-1][0]/60:.0f} min)...")
         body = "\n".join(f"[{int(t)}] {text}" for t, text in chunk)
-        try:
-            data = score_chunk(client, model, body,
-                               SYSTEM.format(streamer=streamer))
-        except Exception as e:
-            log(f"  ! chunk {i} failed ({type(e).__name__}: {e}), skipping")
+        data = None
+        for m_i, m_name in enumerate(_models):
+            try:
+                data = _fn_for(m_name)(_client_for(m_name), m_name, body,
+                                       SYSTEM.format(streamer=streamer))
+                if m_i > 0:
+                    log(f"  (scored with fallback model {m_name})")
+                    _models[:] = _models[m_i:]  # stay on the working model
+                break
+            except Exception as e:
+                log(f"  ! chunk {i} on {m_name} failed "
+                    f"({type(e).__name__}: {str(e)[:80]})")
+        if data is None:
+            log(f"  ! chunk {i} failed on all models, skipping")
             continue
         for m in data.get("moments", []):
             if m["score"] >= 5 and m["end"] > m["start"]:

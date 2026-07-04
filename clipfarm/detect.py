@@ -48,8 +48,9 @@ moments. Rules:
   streamer's reaction
 - start/end in seconds; capture the setup AND the reaction/punchline, nothing more
 - moments must be 12-28 seconds long. Aim for 15-20 — short clips retain best.
-  Cut every second of dead air; start as late as possible, end right after the
-  punchline lands
+  Cut dead air BEFORE the moment; start as late as possible. But NEVER cut the
+  ending short: the reaction must fully play out — screams, laughter, the
+  follow-up line. End 2-3 seconds AFTER the reaction settles, not mid-reaction
 - title: a clickable YouTube Shorts title, punchy, no clickbait lies, max 90 chars
 - hook: a short on-screen overlay line (3-8 words, sentence case) that teases the
   moment without spoiling the punchline, e.g. "Can you guess why he is *mad*?" or
@@ -357,6 +358,7 @@ def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
                  min_len: float, max_len: float) -> list[Moment]:
     """Rank by LLM score + loudness, enforce length bounds and no overlap."""
     for m in moments:
+        m.end += 2.0  # models cut reactions tight; give endings room to land
         # clamp length
         if m.end - m.start > max_len:
             m.end = m.start + max_len

@@ -40,10 +40,10 @@ work_vol = modal.Volume.from_name("streamclip-work", create_if_missing=True)
     volumes={"/root/.cache/huggingface": hf_cache,
              "/root/app/work": work_vol},
     gpu="T4",
-    cpu=4.0,
+    cpu=8.0,
     memory=8192,
     timeout=7200,
-    schedule=modal.Period(minutes=5),
+    schedule=modal.Period(minutes=1),
 )
 def drain():
     """Claim and process queued jobs until the queue is empty."""

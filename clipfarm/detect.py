@@ -7,6 +7,8 @@ import numpy as np
 
 from .transcribe import Word, energy_score
 
+PACING = 7  # seconds between scoring calls; 0 for paid providers
+
 MOMENT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -179,7 +181,8 @@ def _score_chunk_openai(client, model: str, body: str, system: str = None) -> di
     Tries strict JSON schema first; many free endpoints don't support it,
     so falls back to prompt-enforced JSON."""
     import time as _time
-    _time.sleep(7)  # pace for free-tier RPM limits instead of burst+429
+    if PACING:
+        _time.sleep(PACING)  # free tiers only; paid providers run unpaced
     messages = [{"role": "system", "content": system or SYSTEM},
                 {"role": "user", "content": body}]
 
@@ -273,25 +276,44 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
     if cur:
         chunks.append(cur)
 
-    moments: list[Moment] = []
-    for i, chunk in enumerate(chunks, 1):
-        log(f"  LLM scoring chunk {i}/{len(chunks)} "
-            f"({chunk[0][0]/60:.0f}-{chunk[-1][0]/60:.0f} min)...")
+    global PACING
+    paid = model.startswith(("gpt-", "o1", "o3", "o4")) and not base_url
+    PACING = 0 if paid else 7
+    workers = 6 if paid else 1
+
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    done_count = [0]
+    lock = threading.Lock()
+
+    def _score_one(args):
+        i, chunk = args
         body = "\n".join(f"[{int(t)}] {text}" for t, text in chunk)
         data = None
-        for m_i, m_name in enumerate(_models):
+        for m_i, m_name in enumerate(list(_models)):
             try:
                 data = _fn_for(m_name)(_client_for(m_name), m_name, body,
                                        SYSTEM.format(streamer=streamer))
                 if m_i > 0:
-                    log(f"  (scored with fallback model {m_name})")
-                    _models[:] = _models[m_i:]  # stay on the working model
+                    with lock:
+                        log(f"  (scored with fallback model {m_name})")
+                        _models[:] = _models[m_i:]  # stay on the working model
                 break
             except Exception as e:
-                log(f"  ! chunk {i} on {m_name} failed "
-                    f"({type(e).__name__}: {str(e)[:80]})")
+                with lock:
+                    log(f"  ! chunk {i} on {m_name} failed "
+                        f"({type(e).__name__}: {str(e)[:80]})")
+        with lock:
+            done_count[0] += 1
+            log(f"  LLM scoring chunk {done_count[0]}/{len(chunks)} scored")
+        return data
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        chunk_results = list(ex.map(_score_one, enumerate(chunks, 1)))
+
+    moments: list[Moment] = []
+    for data in chunk_results:
         if data is None:
-            log(f"  ! chunk {i} failed on all models, skipping")
             continue
         for m in data.get("moments", []):
             if m["score"] >= 5 and m["end"] > m["start"]:

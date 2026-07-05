@@ -50,7 +50,10 @@ moments. Rules:
 - moments must be 12-28 seconds long. Aim for 15-20 — short clips retain best.
   Cut dead air BEFORE the moment; start as late as possible. But NEVER cut the
   ending short: the reaction must fully play out — screams, laughter, the
-  follow-up line. End 2-3 seconds AFTER the reaction settles, not mid-reaction
+  follow-up line. End 2-3 seconds AFTER the reaction settles, not mid-reaction.
+  If the moment involves a guess, answer, or reveal (word games, quizzes,
+  "wait is it X?"), the clip MUST include the reveal and the reaction to it —
+  never end during the guessing
 - title: a clickable YouTube Shorts title, punchy, no clickbait lies, max 90 chars
 - hook: a short on-screen overlay line (3-8 words, sentence case) that teases the
   moment without spoiling the punchline, e.g. "Can you guess why he is *mad*?" or
@@ -358,7 +361,7 @@ def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
                  min_len: float, max_len: float) -> list[Moment]:
     """Rank by LLM score + loudness, enforce length bounds and no overlap."""
     for m in moments:
-        m.end += 2.0  # models cut reactions tight; give endings room to land
+        m.end += 3.0  # models cut reactions tight; give endings room to land
         # clamp length
         if m.end - m.start > max_len:
             m.end = m.start + max_len

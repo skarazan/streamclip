@@ -72,7 +72,7 @@ Missing: public URL, job-creation UI, EventSub, styles, billing, legal, launch.
 | 1.2 | Vercel account + connect repo | YOU | then me: deploy, env vars, new redirect URLs in Twitch+Supabase | app on real URL |
 | 1.3 | ✅ DONE 07-05: "Clip a VOD" button + POST /api/jobs (credit check, 1-job-at-a-time, URL validation; worker re-checks all + own-channel) | ME | user can self-serve a job |
 | 1.4 | ✅ DONE 07-05 (chain + editor rerank pass deployed, verified on Jynxzi) | ME | quota outage != bad clips |
-| 1.5 | 4 style presets + picker (fonts/colors/watermark text) | ME | new user picks a look in onboarding |
+| 1.5 | ✅ DONE 07-05: 4 presets (classic/beast/boxed/neon) + dashboard picker; Montserrat+Anton bundled; renderer border_style+blur; frame-verified on worker | ME | new user picks a look in onboarding |
 | 1.6 | Email "your clips are ready" (Resend free) | ME | notification lands |
 | 1.7 | Worker errors -> Discord webhook | ME | failures ping us, not Modal email |
 

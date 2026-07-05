@@ -93,6 +93,22 @@ def set_progress(job_id: str, stage: str, detail: str = "") -> None:
 
 
 def process(job: dict) -> None:
+    from clipfarm import fetch
+    try:
+        if fetch.vod_still_live(job["vod_url"]):
+            import datetime
+            later = (datetime.datetime.now(datetime.timezone.utc)
+                     + datetime.timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
+               json={"status": "queued", "worker_id": None, "started_at": None,
+                     "run_after": later,
+                     "progress": {"stage": "finding_vod",
+                                  "detail": "stream is still live — waiting for it to end"}})
+            print(f"{job['id']}: VOD still live, deferred 45min")
+            return
+    except Exception:
+        pass  # liveness check is advisory; proceed if it can't tell
+
     user = get_user(job["user_id"])
     cfg = build_job_config(user, job)
     cfg["_progress"] = lambda stage, detail="": set_progress(job["id"], stage, detail)

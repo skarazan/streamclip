@@ -28,6 +28,14 @@ def latest_vod_url(twitch_url: str) -> tuple[str, str]:
     return e["url"], e.get("title", "stream")
 
 
+def vod_still_live(vod_url: str) -> bool:
+    """An in-progress VOD grows while its stream is live — processing it
+    stalls at the live edge. Check before committing a worker to it."""
+    out = _run(["yt-dlp", "-J", "--no-download", vod_url], timeout=120)
+    info = json.loads(out)
+    return bool(info.get("is_live") or info.get("live_status") == "is_live")
+
+
 def download_audio(vod_url: str, dest_dir: Path) -> Path:
     """Download audio-only track (small — a few hundred MB for a long stream)."""
     dest_dir.mkdir(parents=True, exist_ok=True)

@@ -92,10 +92,19 @@ def set_progress(job_id: str, stage: str, detail: str = "") -> None:
         pass  # progress is cosmetic; never fail a job over it
 
 
+# cost guards: a job must be affordable BEFORE any GPU work happens.
+# 1 credit covers a VOD up to LONG_VOD_H hours; longer costs 2 (compute is
+# roughly linear in VOD length); above MAX_VOD_H we refuse outright.
+LONG_VOD_H = float(os.environ.get("LONG_VOD_HOURS", "8"))
+MAX_VOD_H = float(os.environ.get("MAX_VOD_HOURS", "16"))
+
+
 def process(job: dict) -> None:
     from clipfarm import fetch
+    info = {}
     try:
-        if fetch.vod_still_live(job["vod_url"]):
+        info = fetch.vod_info(job["vod_url"])
+        if info["live"]:
             import datetime
             later = (datetime.datetime.now(datetime.timezone.utc)
                      + datetime.timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -107,9 +116,32 @@ def process(job: dict) -> None:
             print(f"{job['id']}: VOD still live, deferred 45min")
             return
     except Exception:
-        pass  # liveness check is advisory; proceed if it can't tell
+        pass  # metadata probe is advisory; proceed if it can't tell
 
     user = get_user(job["user_id"])
+
+    dur_h = (info.get("duration_s") or 0) / 3600
+    if dur_h > MAX_VOD_H:
+        sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
+           json={"status": "failed", "finished_at": "now()",
+                 "error": f"VOD is {dur_h:.1f}h — the maximum is {MAX_VOD_H:.0f}h",
+                 "progress": {"stage": "failed",
+                              "detail": f"this VOD is {dur_h:.1f}h long — "
+                                        f"we can process up to {MAX_VOD_H:.0f}h"}})
+        print(f"{job['id']}: refused, VOD {dur_h:.1f}h > {MAX_VOD_H:.0f}h cap")
+        return
+    credits_needed = 1 if dur_h <= LONG_VOD_H else 2
+    if user.get("credits", 0) < credits_needed:
+        sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
+           json={"status": "failed", "finished_at": "now()",
+                 "error": "insufficient credits",
+                 "progress": {"stage": "failed",
+                              "detail": f"not enough gigawatts (this VOD needs "
+                                        f"{credits_needed} GW) — top up to keep clipping"}})
+        print(f"{job['id']}: refused, {user.get('credits', 0)} GW "
+              f"< {credits_needed} needed")
+        return
+
     cfg = build_job_config(user, job)
     cfg["_progress"] = lambda stage, detail="": set_progress(job["id"], stage, detail)
     result = pipeline.run(cfg, vod_url=job["vod_url"])
@@ -131,10 +163,11 @@ def process(job: dict) -> None:
        json={"status": "done", "finished_at": "now()",
              "progress": {"stage": "done", "detail": ""}})
     sb("POST", "/rest/v1/credit_events",
-       json={"user_id": job["user_id"], "delta": -1, "reason": "job",
+       json={"user_id": job["user_id"], "delta": -credits_needed,
+             "reason": "job" if credits_needed == 1 else "job (long VOD)",
              "job_id": job["id"]})
     sb("PATCH", f"/rest/v1/users?id=eq.{job['user_id']}",
-       json={"credits": max(0, user["credits"] - 1)})
+       json={"credits": max(0, user["credits"] - credits_needed)})
 
 
 def fail(job: dict, err: str) -> None:

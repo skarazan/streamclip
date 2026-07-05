@@ -28,15 +28,23 @@ def latest_vod_url(twitch_url: str) -> tuple[str, str]:
     return e["url"], e.get("title", "stream")
 
 
-def vod_still_live(vod_url: str) -> bool:
-    """An in-progress VOD grows while its stream is live — processing it
-    stalls at the live edge. Check before committing a worker to it."""
+def vod_info(vod_url: str) -> dict:
+    """Cheap metadata probe: {live, duration_s}. Run before committing a
+    worker — liveness stalls processing, duration drives credit cost."""
     out = _run(["yt-dlp", "-J", "--no-download", vod_url], timeout=120)
     info = json.loads(out)
     # post_live = stream ended but Twitch hasn't finalized the VOD;
-    # yt-dlp falls back to serial ffmpeg-HLS at ~1x realtime for those
-    return bool(info.get("is_live")
-                or info.get("live_status") in ("is_live", "post_live"))
+    # yt-dlp falls back to serial ffmpeg-HLS at ~1x realtime for those.
+    # NOTE: a VOD listed while live also reports partial duration.
+    return {
+        "live": bool(info.get("is_live")
+                     or info.get("live_status") in ("is_live", "post_live")),
+        "duration_s": float(info.get("duration") or 0),
+    }
+
+
+def vod_still_live(vod_url: str) -> bool:
+    return vod_info(vod_url)["live"]
 
 
 def download_audio(vod_url: str, dest_dir: Path) -> Path:

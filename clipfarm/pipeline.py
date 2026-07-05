@@ -15,7 +15,11 @@ def _slug(text: str, n: int = 40) -> str:
     return s[:n] or "clip"
 
 
+PIPELINE_VERSION = "v7-variety (bucketed shortlist, editor dedupe, min-gap spread)"
+
+
 def run(cfg: dict, vod_url: str | None = None) -> dict:
+    print(f"pipeline {PIPELINE_VERSION}")
     t0 = time.time()
     report = cfg.get("_progress") or (lambda stage, detail="": None)
     check_disk(cfg)
@@ -60,9 +64,9 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     dur_h = (words[-1].end / 3600) if words else 0
     print(f"  {len(words)} words, ~{dur_h:.1f}h of speech")
 
-    # 4. loudness
+    # 4. loudness — gated to speech so intro music/soundboards measure zero
     print("Analyzing audio loudness...")
-    profile = transcribe.loudness_profile(audio)
+    profile = detect.speech_gated(transcribe.loudness_profile(audio), words)
 
     # 5. moments
     llm = cfg["llm"]
@@ -85,10 +89,18 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
             words, llm["model"], llm["chunk_minutes"], log=_score_log,
             base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
             streamer=cfg.get("streamer_name", "the streamer"),
-            fallback_models=llm.get("fallback_models"))
+            fallback_models=llm.get("fallback_models"), profile=profile)
         if not moments:
             print("  LLM found nothing usable; falling back to loudness.")
             moments = detect.moments_from_energy(profile)
+        else:
+            report("scoring", "editor pass: keeping only the bangers")
+            moments = detect.rerank_moments(
+                moments, words, profile, llm["model"], log=_score_log,
+                base_url=llm.get("base_url"),
+                api_key_env=llm.get("api_key_env"),
+                streamer=cfg.get("streamer_name", "the streamer"),
+                fallback_models=llm.get("fallback_models"))
     else:
         print("No API credentials for configured model -> loudness-only mode "
               "(set ANTHROPIC_API_KEY or OPENAI_API_KEY, see config.yaml llm:).")
@@ -97,6 +109,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     clips = detect.select_clips(
         moments, profile,
         cfg["clips"]["count"], cfg["clips"]["min_length"], cfg["clips"]["max_length"],
+        words=words,
+        min_gap_s=cfg["clips"].get("min_gap_minutes", 20) * 60,
     )
     if not clips:
         raise SystemExit("No clip candidates found.")
@@ -105,28 +119,71 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         print(f"  [{m.start/60:6.1f}m] score {m.score:.0f} energy {m.energy:.2f}"
               f"  {m.title}")
 
-    # 6. download segments + render
+    # 6. download all segments first — facecam detection gets every segment
     out_dir = PROJECT_ROOT / cfg["output"]["dir"] / f"{date.today()}_{vod_id}"
     out_dir.mkdir(parents=True, exist_ok=True)
     style = cfg["style"]
     results = []
 
+    segs = []
     for i, m in enumerate(clips, 1):
-        name = f"{i:02d}_{_slug(m.title)}"
         seg = vod_work / f"seg_{i:02d}.mp4"
         report("clipping", f"clip {i}/{len(clips)}: downloading moment")
         print(f"[{i}/{len(clips)}] Downloading segment "
               f"{m.start:.0f}s-{m.end:.0f}s...")
-        seg = fetch.download_segment(
-            vod_url, m.start, m.end, seg, cfg["clips"]["quality"])
+        segs.append(fetch.download_segment(
+            vod_url, m.start, m.end, seg, cfg["clips"]["quality"]))
 
-        cam = None
-        if style.get("layout", "full") == "split":
-            from . import facecam
-            cam = facecam.detect_facecam(seg)
-            print(f"[{i}/{len(clips)}] Facecam "
-                  f"{'found -> split layout' if cam else 'not found -> full frame'}")
+    # 7. facecam: the screen is full of faces that aren't the streamer, and
+    # OBS scenes move the cam around, so the only durable anchor is the
+    # streamer's face identity — established once from probes spread across
+    # the whole VOD, then matched inside each segment. Cached per VOD.
+    cams: list = [None] * len(segs)
+    if style.get("layout", "full") == "split":
+        import json as _json
 
+        import numpy as np
+
+        from . import facecam
+        report("rendering", "locating facecam")
+        cam_cache = vod_work / "cam_box.json"
+        identity, pos_box = None, None
+        if cam_cache.exists():
+            try:
+                cached = _json.loads(cam_cache.read_text())
+                # v<4 boxes were fooled by content faces; only identity-era
+                # cache entries are trusted
+                if isinstance(cached, dict) and cached.get("v", 0) >= 4:
+                    if cached.get("emb"):
+                        identity = np.array(cached["emb"])
+                    if cached.get("pos_box"):
+                        pos_box = tuple(cached["pos_box"])
+                    print("Facecam: cached VOD identity")
+            except Exception:
+                pass
+        if identity is None and pos_box is None:
+            duration = words[-1].end if words else 0.0
+            identity, pos_box = facecam.probe_vod(
+                vod_url, duration, vod_work, cfg["clips"]["quality"])
+            if identity is not None or pos_box:
+                tmp = cam_cache.with_suffix(".tmp")
+                tmp.write_text(_json.dumps(
+                    {"v": 4,
+                     "emb": identity.tolist() if identity is not None else None,
+                     "pos_box": pos_box}))
+                tmp.replace(cam_cache)  # atomic: parallel jobs see no partials
+        for i, seg in enumerate(segs):
+            if identity is not None:
+                cams[i] = facecam.match_segment(seg, identity)
+            elif pos_box:
+                cams[i] = pos_box
+        for i, c in enumerate(cams, 1):
+            print(f"[{i}/{len(segs)}] Facecam "
+                  f"{'matched -> split layout' if c else 'none -> full frame'}")
+
+    # 8. render
+    for i, (m, seg, cam) in enumerate(zip(clips, segs, cams), 1):
+        name = f"{i:02d}_{_slug(m.title)}"
         report("rendering", f"clip {i}/{len(clips)}: captions + layout")
         print(f"[{i}/{len(clips)}] Rendering short...")
         top_frac = style.get("split_top", 0.42)

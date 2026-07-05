@@ -38,9 +38,16 @@ The streamer is {streamer}: a gaming streamer. Viewers clip: big comedic
 reactions, rage moments, absurd one-liners, chat interactions, screaming fits,
 unexpected jokes, self-roasts, game fails with big verbal reactions.
 
-You get transcript lines as `[seconds] text`. Return the strongest candidate
-moments. Rules:
-- score 1-10: 10 = guaranteed viral, 5 = decent, skip anything under 5
+You get transcript lines as `[seconds] text`. Lines tagged [SCREAM] or [loud]
+were measured loud in the actual audio; untagged lines were spoken at normal
+volume. Return the strongest candidate moments. Rules:
+- score 1-10, calibrated against the WHOLE multi-hour stream, not this chunk:
+  10 = the best moment of the entire stream, 8-9 = elite (most chunks have
+  NONE), 6-7 = solid, 5 = borderline. Skip anything under 5. Never inflate —
+  a boring chunk should return zero or low-scored moments
+- delivery is content: a "rage moment" or "screaming fit" claim REQUIRES
+  [SCREAM]/[loud] tags at its peak. A quietly muttered line is not a meltdown,
+  and disbelief repeated in a normal voice is not "losing it"
 - CRITICAL: the transcript mixes the STREAMER's voice with in-game dialogue
   (NPCs, cutscenes, videos on screen). Only the streamer's own reactions count —
   loud, first-person, addressed to chat or the game. NEVER pick a moment whose
@@ -63,6 +70,74 @@ moments. Rules:
 Return at most 8 moments per transcript chunk. Quality over quantity."""
 
 
+RERANK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "clips": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "integer"},
+                    "post_score": {"type": "integer"},
+                    "start": {"type": "number"},
+                    "end": {"type": "number"},
+                    "title": {"type": "string"},
+                    "hook": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["id", "post_score", "start", "end",
+                             "title", "hook", "reason"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["clips"],
+    "additionalProperties": False,
+}
+
+EDITOR = """You are the final QA editor at a Twitch clips channel. A scorer
+proposed candidate Shorts from {streamer}'s stream. Most candidates are NOT
+worth posting — your channel's reputation is "3 posted-ready bangers, not 100
+maybes". Judge each candidate's post_score 1-10 (7 = the bar for posting):
+- one clear peak beat that lands with ZERO stream context
+- escalation: it builds to the peak; flat-voiced repetition is filler, not
+  drama, no matter how strong the words are
+- delivery: measured loudness is given per candidate (0..1). Genuine
+  screaming/meltdown is >= 0.40; below that, rage/"loses it" claims are false
+- the peak must sit in the FINAL third: everything after the punchline is
+  retention poison. If the source rambles on after the peak, cut the end to
+  2-3s after the peak lands
+- trim slow setup: start as late as possible while the joke stays legible
+- VARIETY: the kept set is posted together as one batch. When candidates are
+  the same bit, topic, or moment type (three screams about the same match =
+  one clip), keep only the strongest and score the rest below the bar
+Also return tightened start/end as ABSOLUTE stream seconds — transcript lines
+carry [seconds] markers; anchor your cuts to them, never to offsets within the
+snippet. Stay within 10s of the suggestion, 12-28s long, peak in the final
+third. Return a sharper title + hook when you can.
+hook: 3-8 words, sentence case, exactly ONE emotional keyword wrapped in
+*asterisks*, never spoils the punchline.
+Be ruthless: returning ZERO keeps is a valid, respected answer."""
+
+
+def speech_gated(profile: np.ndarray, words: list[Word],
+                 slack_s: float = 3.0) -> np.ndarray:
+    """Zero out loudness where nobody is talking. Intro music, soundboards and
+    game audio measure loud but aren't the streamer; a real scream sits within
+    a few seconds of transcribed speech."""
+    gated = np.zeros_like(profile)
+    n = len(profile)
+    for w in words:
+        a = max(0, int(w.start - slack_s))
+        b = min(n, int(w.end + slack_s) + 1)
+        gated[a:b] = profile[a:b]
+    # the raw profile is normalized to the whole-VOD peak — often intro music.
+    # renormalize to the speech peak so scream thresholds mean screams.
+    peak = gated.max()
+    return gated / peak if peak > 0 else gated
+
+
 @dataclass
 class Moment:
     start: float
@@ -73,20 +148,35 @@ class Moment:
     reason: str = ""
     energy: float = 0.0
     combined: float = field(default=0.0)
+    edited: bool = False  # boundaries hand-tightened by the editor pass
 
 
-def _transcript_lines(words: list[Word]) -> list[tuple[float, str]]:
-    """Group words into ~8s lines: (start_time, text)."""
+def _transcript_lines(words: list[Word],
+                      profile: np.ndarray | None = None) -> list[tuple[float, str]]:
+    """Group words into ~8s lines: (start_time, text). With a loudness profile,
+    lines are tagged [SCREAM]/[loud] so a text-only model can hear delivery —
+    without this it can't tell a genuine meltdown from a muttered one-liner."""
     lines, cur, cur_start = [], [], None
+
+    def _flush(start: float, end: float) -> None:
+        text = " ".join(cur)
+        if profile is not None and len(profile):
+            peak = float(profile[int(start):int(end) + 1].max(initial=0.0))
+            if peak >= 0.70:
+                text = "[SCREAM] " + text
+            elif peak >= 0.45:
+                text = "[loud] " + text
+        lines.append((start, text))
+
     for w in words:
         if cur_start is None:
             cur_start = w.start
         cur.append(w.text)
         if w.end - cur_start >= 8.0:
-            lines.append((cur_start, " ".join(cur)))
+            _flush(cur_start, w.end)
             cur, cur_start = [], None
     if cur:
-        lines.append((cur_start, " ".join(cur)))
+        _flush(cur_start, words[-1].end)
     return lines
 
 
@@ -135,7 +225,8 @@ def llm_available(model: str, base_url: str | None = None,
     return cfg_dir.exists() and any(cfg_dir.glob("*.json"))
 
 
-def _score_chunk_claude(client, model: str, body: str, system: str = None) -> dict:
+def _score_chunk_claude(client, model: str, body: str, system: str = None,
+                        schema: dict = None) -> dict:
     import anthropic
     kwargs = {}
     if not model.startswith("claude-haiku"):
@@ -147,7 +238,7 @@ def _score_chunk_claude(client, model: str, body: str, system: str = None) -> di
             max_tokens=8000,
             system=system or SYSTEM,
             output_config={"format": {"type": "json_schema",
-                                      "schema": MOMENT_SCHEMA}},
+                                      "schema": schema or MOMENT_SCHEMA}},
             messages=[{"role": "user", "content": body}],
             **kwargs,
         )
@@ -168,14 +259,15 @@ def _extract_json(text: str) -> dict:
     return obj
 
 
-def _score_chunk_claude_code(client, model: str, body: str, system: str = None) -> dict:
+def _score_chunk_claude_code(client, model: str, body: str, system: str = None,
+                             schema: dict = None) -> dict:
     """Score via the Claude Code CLI — runs on the user's Claude subscription,
     no API key needed."""
     import subprocess
     prompt = (
         (system or SYSTEM)
         + "\n\nRespond with ONLY a JSON object, no prose, matching exactly: "
-        + json.dumps(MOMENT_SCHEMA)
+        + json.dumps(schema or MOMENT_SCHEMA)
         + "\n\nTranscript:\n" + body
     )
     r = subprocess.run(
@@ -191,11 +283,13 @@ def _score_chunk_claude_code(client, model: str, body: str, system: str = None) 
     return _extract_json(r.stdout)
 
 
-def _score_chunk_openai(client, model: str, body: str, system: str = None) -> dict:
+def _score_chunk_openai(client, model: str, body: str, system: str = None,
+                        schema: dict = None) -> dict:
     """OpenAI-compatible endpoint (OpenAI, Groq, Gemini, OpenRouter, ...).
     Tries strict JSON schema first; many free endpoints don't support it,
     so falls back to prompt-enforced JSON."""
     import time as _time
+    schema = schema or MOMENT_SCHEMA
     if PACING:
         _time.sleep(PACING)  # free tiers only; paid providers run unpaced
     messages = [{"role": "system", "content": system or SYSTEM},
@@ -221,7 +315,7 @@ def _score_chunk_openai(client, model: str, body: str, system: str = None) -> di
             model=model,
             messages=messages,
             response_format={"type": "json_schema", "json_schema": {
-                "name": "moments", "schema": MOMENT_SCHEMA, "strict": True}},
+                "name": "moments", "schema": schema, "strict": True}},
             **kw,
         )
         return json.loads(resp.choices[0].message.content)
@@ -229,7 +323,7 @@ def _score_chunk_openai(client, model: str, body: str, system: str = None) -> di
         pass  # endpoint likely doesn't support json_schema — degrade gracefully
     messages[1]["content"] = (
         body + "\n\nRespond with ONLY a JSON object, no prose, matching exactly: "
-        + json.dumps(MOMENT_SCHEMA))
+        + json.dumps(schema))
     try:
         resp = _create(model=model, messages=messages,
                        response_format={"type": "json_object"})
@@ -238,19 +332,17 @@ def _score_chunk_openai(client, model: str, body: str, system: str = None) -> di
     return _extract_json(resp.choices[0].message.content)
 
 
-def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
-                   log=print, base_url: str | None = None,
-                   api_key_env: str | None = None,
-                   streamer: str = "the streamer",
-                   fallback_models: list[str] | None = None) -> list[Moment]:
-    def _fn_for(name: str):
-        if name == "claude-code":
-            return _score_chunk_claude_code
-        if name.startswith("claude"):
-            return _score_chunk_claude
-        return _score_chunk_openai
+def _fn_for(name: str):
+    if name == "claude-code":
+        return _score_chunk_claude_code
+    if name.startswith("claude"):
+        return _score_chunk_claude
+    return _score_chunk_openai
 
-    _models = [model] + [m for m in (fallback_models or []) if m != model]
+
+def _client_provider(primary: str, base_url: str | None,
+                     api_key_env: str | None):
+    """Lazy per-model client cache, shared by scoring and the editor pass."""
     _clients = {}
 
     def _client_for(name: str):
@@ -263,7 +355,7 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
         elif name.startswith("claude"):
             import anthropic
             c = anthropic.Anthropic()
-        elif name == model and base_url:
+        elif name == primary and base_url:
             c = OpenAI(base_url=base_url,
                        api_key=os.environ[api_key_env or "OPENAI_API_KEY"])
         elif name.startswith("gemini"):
@@ -277,7 +369,19 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
         _clients[name] = c
         return c
 
-    lines = _transcript_lines(words)
+    return _client_for
+
+
+def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
+                   log=print, base_url: str | None = None,
+                   api_key_env: str | None = None,
+                   streamer: str = "the streamer",
+                   fallback_models: list[str] | None = None,
+                   profile: np.ndarray | None = None) -> list[Moment]:
+    _models = [model] + [m for m in (fallback_models or []) if m != model]
+    _client_for = _client_provider(model, base_url, api_key_env)
+
+    lines = _transcript_lines(words, profile)
     chunk_s = chunk_minutes * 60
 
     # split lines into time chunks
@@ -340,6 +444,99 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
     return moments
 
 
+def rerank_moments(moments: list[Moment], words: list[Word],
+                   profile: np.ndarray, model: str, log=print,
+                   base_url: str | None = None,
+                   api_key_env: str | None = None,
+                   streamer: str = "the streamer",
+                   fallback_models: list[str] | None = None,
+                   shortlist: int = 15, post_bar: int = 7) -> list[Moment]:
+    """Editor pass: chunk scoring grades on a curve (every chunk hands out
+    10s), so the shortlist gets re-judged head-to-head in ONE call, with the
+    measured loudness and full transcript context the chunk scorer never saw.
+    Only candidates clearing the posting bar survive; boundaries/titles/hooks
+    come back tightened."""
+    if len(moments) <= 1:
+        return moments
+    # a clip window must contain actual speech — hallucinated timestamps and
+    # music-only stretches have none, no matter how loud they measured
+    starts = np.array([w.start for w in words])
+    moments = [m for m in moments
+               if np.searchsorted(starts, m.end) - np.searchsorted(starts, m.start) >= 8]
+    if not moments:
+        return []
+    for m in moments:
+        m.energy = energy_score(profile, m.start, m.end)
+        m.combined = m.score + 3.0 * m.energy
+    # one loud stretch of the stream can crowd out everything else — build the
+    # shortlist round-robin across 30-min buckets so the editor judges the
+    # whole stream's best, not one section's
+    buckets: dict[int, list[Moment]] = {}
+    for m in sorted(moments, key=lambda x: x.combined, reverse=True):
+        buckets.setdefault(int(m.start // 1800), []).append(m)
+    cand: list[Moment] = []
+    while len(cand) < min(shortlist, len(moments)):
+        added = False
+        for b in sorted(buckets):
+            if buckets[b] and len(cand) < shortlist:
+                cand.append(buckets[b].pop(0))
+                added = True
+        if not added:
+            break
+    cand.sort(key=lambda x: x.combined, reverse=True)
+
+    blocks = []
+    for i, m in enumerate(cand, 1):
+        a, b = m.start - 8, m.end + 8
+        lines = _transcript_lines(
+            [w for w in words if a <= w.start <= b], profile)
+        snippet = "\n".join(f"[{int(t)}] {text}" for t, text in lines)
+        blocks.append(
+            f"CANDIDATE {i} | scorer said {m.score:.0f}/10: {m.title}\n"
+            f"suggested {m.start:.0f}s -> {m.end:.0f}s | "
+            f"measured loudness {m.energy:.2f}\n"
+            f"transcript (8s lead-in/out included):\n{snippet}")
+    body = "\n\n".join(blocks)
+
+    data = None
+    for name in [model] + [m for m in (fallback_models or []) if m != model]:
+        try:
+            data = _fn_for(name)(
+                _client_provider(model, base_url, api_key_env)(name), name,
+                body, EDITOR.format(streamer=streamer), schema=RERANK_SCHEMA)
+            break
+        except Exception as e:
+            log(f"  ! editor pass on {name} failed "
+                f"({type(e).__name__}: {str(e)[:80]})")
+    if data is None:
+        log("  editor pass unavailable -> keeping scorer ranking")
+        return moments
+
+    keep: list[Moment] = []
+    for c in data.get("clips", []):
+        if not (1 <= int(c["id"]) <= len(cand)) or c["post_score"] < post_bar:
+            continue
+        m = cand[int(c["id"]) - 1]
+        s, e = float(c["start"]), float(c["end"])
+        if m.start - 10 <= s < e <= m.end + 10 and 8 <= e - s <= 35:
+            m.start, m.end = s, e
+            m.edited = True
+        m.score = float(c["post_score"])
+        if c.get("title"):
+            m.title = c["title"]
+        if c.get("hook"):
+            m.hook = c["hook"]
+        if c.get("reason"):
+            m.reason = c["reason"]
+        keep.append(m)
+    log(f"  editor pass kept {len(keep)}/{len(cand)} candidates")
+    if not keep:
+        # nothing cleared the bar; ship the least-bad one rather than zero
+        log("  editor kept nothing -> shipping top scorer candidate only")
+        keep = [cand[0]]
+    return keep
+
+
 def moments_from_energy(profile: np.ndarray, clip_len: float = 45.0,
                         top_n: int = 12) -> list[Moment]:
     """Fallback when no API key: pick loudest windows."""
@@ -357,29 +554,83 @@ def moments_from_energy(profile: np.ndarray, clip_len: float = 45.0,
     ]
 
 
+def _settle_end(m: Moment, profile: np.ndarray, words: list[Word],
+                max_extra: float = 6.0, tail_pad: float = 2.0) -> None:
+    """Extend the end until the reaction audibly settles, instead of a blind
+    fixed pad — screams/laughter play out fully, then ~2s of air. Capped so a
+    nonstop-loud stream can't drag the clip forever."""
+    limit = min(m.end + max_extra, float(len(profile)))
+    thresh = max(0.12, 0.45 * energy_score(profile, m.start, m.end))
+    last_loud = m.end
+    for t in range(int(m.end), int(limit)):
+        if profile[t] >= thresh:
+            last_loud = t + 1.0
+    m.end = min(limit, last_loud + tail_pad)
+    # never cut a word in half at the end
+    for w in words:
+        if w.start >= m.end:
+            break
+        if w.start < m.end < w.end:
+            m.end = w.end + 0.3
+            break
+
+
+def _snap_start(m: Moment, words: list[Word], max_len: float) -> None:
+    """Never open mid-word: include the straddled word fully when the length
+    budget allows, otherwise start right after it."""
+    for w in words:
+        if w.start > m.start:
+            break
+        if w.start <= m.start < w.end:
+            if m.end - w.start <= max_len:
+                m.start = max(0.0, w.start - 0.15)
+            else:
+                m.start = w.end
+            break
+
+
 def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
-                 min_len: float, max_len: float) -> list[Moment]:
+                 min_len: float, max_len: float,
+                 words: list[Word] | None = None,
+                 min_gap_s: float = 0.0) -> list[Moment]:
     """Rank by LLM score + loudness, enforce length bounds and no overlap."""
+    words = words or []
     for m in moments:
-        m.end += 3.0  # models cut reactions tight; give endings room to land
-        # clamp length
+        # editor-tightened ends are deliberate cuts after the peak — give them
+        # only a whisper of settle room, not a full extension
+        if m.edited:
+            _settle_end(m, profile, words, max_extra=1.5, tail_pad=0.5)
+        else:
+            _settle_end(m, profile, words)
+        # over budget: trim dead air at the head — NEVER the ending. The
+        # reaction/reveal lives at the end; the start is expendable setup.
         if m.end - m.start > max_len:
-            m.end = m.start + max_len
+            m.start = m.end - max_len
+        _snap_start(m, words, max_len)
         if m.end - m.start < min_len:
-            pad = (min_len - (m.end - m.start)) / 2
-            m.start = max(0.0, m.start - pad)
-            m.end = m.start + min_len
+            m.start = max(0.0, m.end - min_len)  # more setup; ending stays put
+            if m.end - m.start < min_len:
+                m.end = m.start + min_len
         m.energy = energy_score(profile, m.start, m.end)
         m.combined = m.score + 3.0 * m.energy  # loudness = streamer, not NPC
 
     # near-silent "moments" are usually game dialogue the LLM mistook for content
     moments = [m for m in moments if m.energy >= 0.12]
 
+    # two passes: first demand time spread (a batch of three clips from the
+    # same 10 minutes is one clip posted thrice), then fill remaining slots
+    # from whatever's left if spread alone can't reach count
     picked: list[Moment] = []
-    for m in sorted(moments, key=lambda x: x.combined, reverse=True):
-        if any(not (m.end <= p.start or m.start >= p.end) for p in picked):
-            continue
-        picked.append(m)
+    ranked = sorted(moments, key=lambda x: x.combined, reverse=True)
+    for gap in (min_gap_s, 0.0):
+        for m in ranked:
+            if m in picked or any(
+                    not (m.end + gap <= p.start or m.start >= p.end + gap)
+                    for p in picked):
+                continue
+            picked.append(m)
+            if len(picked) == count:
+                break
         if len(picked) == count:
             break
     return sorted(picked, key=lambda m: m.start)

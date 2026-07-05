@@ -161,6 +161,15 @@ def _split_filter(segment: Path, cam: tuple[float, float, float, float],
         gw, gh = sw, sw / g_ar
     gx, gy = (sw - gw) / 2, (sh - gh) / 2
 
+    # the source's own cam overlay already fills the top pane — slide the
+    # gameplay crop sideways so it doesn't appear a second time below
+    cam_x1, cam_x2 = fx * sw, (fx + fw) * sw
+    if gw < sw and gx < cam_x2 and gx + gw > cam_x1:
+        if (cam_x1 + cam_x2) / 2 < sw / 2:
+            gx = min(cam_x2, sw - gw)   # cam on the left -> slide right
+        else:
+            gx = max(cam_x1 - gw, 0.0)  # cam on the right -> slide left
+
     return (
         f"[0:v]split=2[c][g];"
         f"[c]crop={_even(cw)}:{_even(ch)}:{int(cx)}:{int(cy)},"

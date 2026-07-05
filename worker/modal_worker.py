@@ -57,6 +57,11 @@ def drain():
     os.environ.setdefault("WORKER_ID", "modal")
 
     import worker
+    from clipfarm.pipeline import PIPELINE_VERSION
+
+    # stale pre-deploy containers can claim jobs and silently run old code;
+    # this line in every drain makes the running version verifiable
+    print(f"drain code: {PIPELINE_VERSION}")
 
     worker.requeue_stale()
     n = 0

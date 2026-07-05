@@ -4,6 +4,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { serverClient } from "../../lib/supabase";
 import ActiveJobs from "./ActiveJobs";
 import ClipCount from "./ClipCount";
+import ClipVod from "./ClipVod";
 
 const s3 = new S3Client({
   region: "auto",
@@ -56,6 +57,8 @@ export default async function Dashboard() {
           </div>
         </div>
       </div>
+
+      <ClipVod />
 
       <ActiveJobs />
 

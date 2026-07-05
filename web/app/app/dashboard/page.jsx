@@ -5,6 +5,7 @@ import { serverClient } from "../../lib/supabase";
 import ActiveJobs from "./ActiveJobs";
 import ClipCount from "./ClipCount";
 import ClipVod from "./ClipVod";
+import StylePicker from "./StylePicker";
 
 const s3 = new S3Client({
   region: "auto",
@@ -59,6 +60,8 @@ export default async function Dashboard() {
       </div>
 
       <ClipVod />
+
+      <StylePicker initial={profile?.style_profile?.preset} />
 
       <ActiveJobs />
 

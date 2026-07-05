@@ -15,7 +15,7 @@ app = modal.App("streamclip-worker")
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    .apt_install("ffmpeg")
+    .apt_install("ffmpeg", "fontconfig", "fonts-liberation")
     .pip_install(
         "yt-dlp", "faster-whisper", "numpy", "pyyaml",
         "httpx", "boto3", "openai", "opencv-python-headless<5",
@@ -55,6 +55,17 @@ def drain():
     sys.path.insert(0, "/root/app")
     sys.path.insert(0, "/root/app/worker")
     os.environ.setdefault("WORKER_ID", "modal")
+
+    # style-preset fonts ride in the clipfarm mount; register them with
+    # fontconfig once per container so libass can resolve them by name
+    import subprocess
+    fonts = Path("/root/app/clipfarm/fonts")
+    dest = Path("/usr/share/fonts/truetype/streamclip")
+    if fonts.is_dir() and not dest.exists():
+        dest.mkdir(parents=True)
+        for f in fonts.glob("*.ttf"):
+            (dest / f.name).write_bytes(f.read_bytes())
+        subprocess.run(["fc-cache", "-f"], capture_output=True)
 
     import worker
     from clipfarm.pipeline import PIPELINE_VERSION

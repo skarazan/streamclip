@@ -16,7 +16,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cap,{cap_font},{cap_size},{cap_color},{cap_color},{outline_c},&H80000000,-1,0,0,0,100,100,0,0,1,{cap_outline},2,5,60,60,0,1
+Style: Cap,{cap_font},{cap_size},{cap_color},{cap_color},{outline_c},&H80000000,-1,0,0,0,100,100,0,0,{cap_bstyle},{cap_outline},2,5,60,60,0,1
 Style: Hook,{hook_font},{hook_size},{hook_color},{hook_color},{outline_c},&H80000000,-1,0,0,0,100,100,0,0,1,{hook_outline},2,5,40,40,0,1
 Style: Mark,{wm_font},{wm_size},{wm_color},{wm_color},&H60000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,9,20,36,40,1
 
@@ -60,6 +60,9 @@ def build_ass(words: list[Word], clip_start: float, clip_end: float,
         cap_font=style["font"], cap_size=style["font_size"],
         cap_color=style["primary_color"], outline_c=style["outline_color"],
         cap_outline=style["outline"],
+        # BorderStyle 3 = opaque box behind the line (filled with the outline
+        # colour) — the CapCut/Hormozi "pill" caption meta
+        cap_bstyle=style.get("border_style", 1),
         hook_font=hook_cfg.get("font", style["font"]),
         hook_size=hook_cfg.get("font_size", 84),
         hook_color=hook_cfg.get("color", "&H00FFFFFF"),
@@ -111,9 +114,12 @@ def build_ass(words: list[Word], clip_start: float, clip_end: float,
                 else:
                     parts.append(txt)
             text = " ".join(parts)
+            # soft edge blur turns a colored outline into a neon glow
+            blur = style.get("caption_blur", 0)
+            blur_tag = f"\\blur{blur}" if blur else ""
             lines.append(
                 f"Dialogue: 0,{_ts(ev_start)},{_ts(ev_end)},Cap,,0,0,0,"
-                f"{{\\an5\\pos({W // 2},{pos_y})\\fad(50,0)}}{text}"
+                f"{{\\an5\\pos({W // 2},{pos_y})\\fad(50,0){blur_tag}}}{text}"
             )
     dest.write_text(header + "\n".join(lines), encoding="utf-8")
     return dest

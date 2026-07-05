@@ -77,6 +77,11 @@ Layered guards, outermost = absolute:
    Modal cap bounds even that.
 4. **Phone-verified trial, 2 GW** — repeat-trial abuse costs attacker a phone
    number per $0.70 of our compute.
+4b. **Own-content rule** (worker.py, deployed): a job's VOD must belong to the
+   connected Twitch channel (founder/internal plans bypass for testing). This
+   makes the connected account the real moat: farming free compute requires
+   actually STREAMING on each abuse account — more work than editing manually.
+   Also keeps the clean-IP position (tool, not clip farm).
 5. **R2 free egress** — viral clip downloads cost us $0 bandwidth by
    architecture. (Do NOT migrate to S3.)
 6. Same-VOD dedupe via transcript/identity caches — reruns ~half cost.

@@ -40,6 +40,8 @@ def vod_info(vod_url: str) -> dict:
         "live": bool(info.get("is_live")
                      or info.get("live_status") in ("is_live", "post_live")),
         "duration_s": float(info.get("duration") or 0),
+        "channel": (info.get("uploader_id") or info.get("uploader")
+                    or info.get("channel") or "").lower(),
     }
 
 

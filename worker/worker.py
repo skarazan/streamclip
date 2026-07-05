@@ -120,6 +120,22 @@ def process(job: dict) -> None:
 
     user = get_user(job["user_id"])
 
+    # own-content rule: the connected Twitch account is the abuse moat AND
+    # the clean-IP position — you clip your channel, not someone else's.
+    # founder/internal accounts bypass for cross-streamer testing.
+    vod_chan = (info.get("channel") or "").lower()
+    own_login = (user.get("twitch_login") or "").lower()
+    if (vod_chan and own_login and vod_chan != own_login
+            and user.get("plan") not in ("founder", "internal")):
+        sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
+           json={"status": "failed", "finished_at": "now()",
+                 "error": f"VOD belongs to '{vod_chan}', account is '{own_login}'",
+                 "progress": {"stage": "failed",
+                              "detail": "StreamClip clips your own channel's "
+                                        "VODs — this one belongs to another streamer"}})
+        print(f"{job['id']}: refused, VOD channel {vod_chan} != {own_login}")
+        return
+
     dur_h = (info.get("duration_s") or 0) / 3600
     if dur_h > MAX_VOD_H:
         sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",

@@ -33,7 +33,10 @@ def vod_still_live(vod_url: str) -> bool:
     stalls at the live edge. Check before committing a worker to it."""
     out = _run(["yt-dlp", "-J", "--no-download", vod_url], timeout=120)
     info = json.loads(out)
-    return bool(info.get("is_live") or info.get("live_status") == "is_live")
+    # post_live = stream ended but Twitch hasn't finalized the VOD;
+    # yt-dlp falls back to serial ffmpeg-HLS at ~1x realtime for those
+    return bool(info.get("is_live")
+                or info.get("live_status") in ("is_live", "post_live"))
 
 
 def download_audio(vod_url: str, dest_dir: Path) -> Path:
@@ -42,6 +45,7 @@ def download_audio(vod_url: str, dest_dir: Path) -> Path:
     out_tmpl = str(dest_dir / "vod_audio.%(ext)s")
     _run([
         "yt-dlp", "-f", "Audio_Only/bestaudio/worst",
+        "--downloader", "m3u8:native",
         "--concurrent-fragments", "8",
         "--socket-timeout", "30", "--retries", "5",
         "-o", out_tmpl, vod_url,

@@ -191,13 +191,25 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
             print(f"[{i}/{len(segs)}] Facecam "
                   f"{'matched -> split layout' if c else 'none -> full frame'}")
 
-    # 8. render
+    # 8. caption transcripts: the rough whole-VOD transcript picked the
+    # moments; the words that get BURNED ON SCREEN come from a premium model
+    # over just these ~90 seconds (base.en heard "BANG BANG" as "BANK")
+    cap_model = cfg["transcribe"].get("caption_model")
+    cap_words: list = [None] * len(segs)
+    if cap_model and cap_model != t_model:
+        report("rendering", "transcribing clips with the accurate model")
+        print(f"Caption pass: {cap_model} over {len(segs)} segments...")
+        cap_words = transcribe.transcribe_clips(
+            [(seg, m.start) for m, seg in zip(clips, segs)],
+            cap_model, cfg["transcribe"]["compute_type"])
+
+    # 9. render
     for i, (m, seg, cam) in enumerate(zip(clips, segs, cams), 1):
         name = f"{i:02d}_{_slug(m.title)}"
         report("rendering", f"clip {i}/{len(clips)}: captions + layout")
         print(f"[{i}/{len(clips)}] Rendering short...")
         top_frac = style.get("split_top", 0.42)
-        ass = render.build_ass(words, m.start, m.end, style,
+        ass = render.build_ass(cap_words[i - 1] or words, m.start, m.end, style,
                                vod_work / f"seg_{i:02d}.ass",
                                hook=m.hook, hook_color_idx=i - 1,
                                hook_pos=top_frac if cam else None)

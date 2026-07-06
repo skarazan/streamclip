@@ -49,6 +49,32 @@ def transcribe(audio_path: Path, model_name: str, compute_type: str,
     return words
 
 
+def transcribe_clips(items: list[tuple[Path, float]], model_name: str,
+                     compute_type: str) -> list[list[Word]]:
+    """Accurate transcription of the chosen clip segments (burned captions
+    only). items = [(media, absolute_start_s)]. A big model over ~90s of
+    audio costs seconds — accuracy where it's actually visible."""
+    from faster_whisper import WhisperModel
+
+    device, ct = "cpu", compute_type
+    try:
+        import ctranslate2
+        if ctranslate2.get_cuda_device_count() > 0:
+            device, ct = "cuda", "float16"
+    except Exception:
+        pass
+    model = WhisperModel(model_name, device=device, compute_type=ct)
+    out: list[list[Word]] = []
+    for media, offset_s in items:
+        segments, _ = model.transcribe(
+            str(media), word_timestamps=True, vad_filter=True, language="en",
+        )
+        out.append([Word(round(w.start + offset_s, 2),
+                         round(w.end + offset_s, 2), w.word.strip())
+                    for seg in segments for w in (seg.words or [])])
+    return out
+
+
 def loudness_profile(audio_path: Path, window_s: float = 1.0) -> np.ndarray:
     """Per-second RMS loudness (normalized 0..1). Index i = second i."""
     sr = 8000

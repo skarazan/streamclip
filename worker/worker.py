@@ -48,6 +48,19 @@ def requeue_stale(minutes: int = 150) -> None:  # must exceed function timeout
        json={"status": "queued", "worker_id": None, "started_at": None})
 
 
+def has_ready_job() -> bool:
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    r = sb("GET", "/rest/v1/jobs?status=eq.queued"
+           f"&or=(run_after.is.null,run_after.lte.{now})&select=id&limit=1")
+    return bool(r.json())
+
+
+def has_running_job() -> bool:
+    r = sb("GET", "/rest/v1/jobs?status=eq.running&select=id&limit=1")
+    return bool(r.json())
+
+
 def claim_job() -> dict | None:
     r = sb("POST", "/rest/v1/rpc/claim_job", json={"p_worker": WORKER_ID})
     rows = r.json()

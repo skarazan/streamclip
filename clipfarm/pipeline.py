@@ -15,7 +15,7 @@ def _slug(text: str, n: int = 40) -> str:
     return s[:n] or "clip"
 
 
-PIPELINE_VERSION = "v7-variety (bucketed shortlist, editor dedupe, min-gap spread)"
+PIPELINE_VERSION = "v8-captions (distil-large-v3 transcription, model-versioned cache)"
 
 
 def run(cfg: dict, vod_url: str | None = None) -> dict:
@@ -57,9 +57,12 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     # 3. transcribe (cached)
     report("transcribing")
     print("Transcribing locally with Whisper (long streams take a while)...")
+    # cache is model-specific: upgrading the whisper model must not silently
+    # reuse transcripts from a worse one
+    t_model = cfg["transcribe"]["model"]
     words = transcribe.transcribe(
-        audio, cfg["transcribe"]["model"], cfg["transcribe"]["compute_type"],
-        cache_path=vod_work / "transcript.json",
+        audio, t_model, cfg["transcribe"]["compute_type"],
+        cache_path=vod_work / f"transcript.{t_model.replace('/', '_')}.json",
     )
     dur_h = (words[-1].end / 3600) if words else 0
     print(f"  {len(words)} words, ~{dur_h:.1f}h of speech")

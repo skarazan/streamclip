@@ -37,13 +37,40 @@ work_vol = modal.Volume.from_name("streamclip-work", create_if_missing=True)
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("streamclip")],
+    cpu=0.125,
+    memory=256,
+    timeout=120,
+    schedule=modal.Period(minutes=1),
+)
+def poll():
+    """Cheap scheduled heartbeat. NEVER attach a GPU to a schedule — a
+    1-min GPU schedule + idle keep-alive is a 24/7 T4 (~$25/day) doing
+    nothing. This poll is a fraction of a CPU core doing two REST calls."""
+    import os
+    import sys
+
+    os.chdir("/root/app")
+    sys.path.insert(0, "/root/app")
+    sys.path.insert(0, "/root/app/worker")
+
+    import worker
+
+    worker.requeue_stale()
+    if worker.has_ready_job() and not worker.has_running_job():
+        drain.spawn()
+        print("ready job found -> GPU drain spawned")
+
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("streamclip")],
     volumes={"/root/.cache/huggingface": hf_cache,
              "/root/app/work": work_vol},
     gpu="T4",
     cpu=8.0,
     memory=8192,
     timeout=7200,
-    schedule=modal.Period(minutes=1),
+    scaledown_window=10,  # GPU dies seconds after the queue empties
 )
 def drain():
     """Claim and process queued jobs until the queue is empty."""
@@ -74,7 +101,6 @@ def drain():
     # this line in every drain makes the running version verifiable
     print(f"drain code: {PIPELINE_VERSION}")
 
-    worker.requeue_stale()
     n = 0
     while True:
         job = worker.claim_job()

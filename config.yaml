@@ -13,8 +13,11 @@ clips:
 
 # Whisper transcription (runs locally, no API cost)
 transcribe:
-  model: "base.en"      # tiny.en = fastest, base.en = good balance, small.en = better
-  compute_type: "int8"  # int8 is fastest on M-series CPU
+  # captions ARE the product: base.en mishears screaming/names (BANG->BANK).
+  # distil-large-v3 = near large-v3 accuracy, fast on the worker's T4 GPU
+  # (transcribe() auto-switches to cuda/float16 there; int8 applies on CPU).
+  model: "distil-large-v3"
+  compute_type: "int8"
 
 # LLM moment scoring. Falls back to audio-loudness-only picking if no key.
 # Claude models need ANTHROPIC_API_KEY; gpt-* models need OPENAI_API_KEY.

@@ -49,6 +49,110 @@ def transcribe(audio_path: Path, model_name: str, compute_type: str,
     return words
 
 
+def _groq_words(audio: Path, model: str, offset_s: float = 0.0) -> list[Word]:
+    """One Groq transcription call -> Words shifted to absolute time.
+    Retries through free-tier 429s."""
+    import os
+    import time
+
+    import httpx
+
+    for attempt in range(5):
+        r = httpx.post(
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {os.environ['GROQ_API_KEY']}"},
+            files={"file": (audio.name, audio.read_bytes())},
+            data={"model": model, "response_format": "verbose_json",
+                  "timestamp_granularities[]": "word", "language": "en"},
+            timeout=300,
+        )
+        if r.status_code == 429:
+            wait = min(120, 20 * (attempt + 1))
+            print(f"  groq rate limit, waiting {wait}s...")
+            time.sleep(wait)
+            continue
+        r.raise_for_status()
+        return [Word(round(w["start"] + offset_s, 2),
+                     round(w["end"] + offset_s, 2), w["word"].strip())
+                for w in (r.json().get("words") or [])]
+    raise RuntimeError("groq transcription rate-limited after 5 retries")
+
+
+def transcribe_groq(audio_path: Path, cache_path: Path | None = None,
+                    model: str = "whisper-large-v3-turbo",
+                    chunk_minutes: int = 90) -> list[Word]:
+    """Whole-VOD transcription via Groq (~200x realtime, no GPU anywhere).
+    Long audio is re-encoded to small opus chunks (upload limit) with a 5s
+    overlap; words landing in the overlap are taken from the later chunk."""
+    import subprocess
+    import tempfile
+
+    if cache_path and cache_path.exists():
+        data = json.loads(cache_path.read_text())
+        return [Word(**w) for w in data]
+
+    chunk_s = chunk_minutes * 60
+    overlap = 5.0
+    # probe duration
+    p = subprocess.run(
+        [ffmpeg_path(), "-i", str(audio_path), "-f", "null", "-t", "0.1", "-"],
+        capture_output=True, text=True)
+    import re as _re
+    m = _re.search(r"Duration: (\d+):(\d+):(\d+\.?\d*)", p.stderr)
+    dur = (int(m.group(1)) * 3600 + int(m.group(2)) * 60
+           + float(m.group(3))) if m else 0.0
+
+    words: list[Word] = []
+    t = 0.0
+    with tempfile.TemporaryDirectory() as td:
+        i = 0
+        while t < max(dur, 0.1):
+            chunk = Path(td) / f"chunk_{i:03d}.ogg"
+            subprocess.run(
+                [ffmpeg_path(), "-y", "-v", "error",
+                 "-ss", str(max(0.0, t - (overlap if i else 0.0))),
+                 "-t", str(chunk_s + overlap), "-i", str(audio_path),
+                 "-vn", "-ac", "1", "-ar", "16000",
+                 "-c:a", "libopus", "-b:a", "16k", str(chunk)],
+                check=True, capture_output=True)
+            off = max(0.0, t - (overlap if i else 0.0))
+            got = _groq_words(chunk, model, offset_s=off)
+            # overlap region belongs to this (later) chunk
+            words = [w for w in words if w.start < t] + \
+                    [w for w in got if w.start >= (t if i else 0.0)]
+            print(f"  groq chunk {i + 1} "
+                  f"({off / 60:.0f}-{min(dur, t + chunk_s) / 60:.0f}min): "
+                  f"total {len(words)} words")
+            t += chunk_s
+            i += 1
+
+    if cache_path:
+        tmp = cache_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps([asdict(w) for w in words]))
+        tmp.replace(cache_path)
+    return words
+
+
+def transcribe_clips_groq(items: list[tuple[Path, float]],
+                          model: str = "whisper-large-v3-turbo") -> list[list[Word]]:
+    """Caption-grade transcription of clip segments via Groq — ~90s of audio
+    costs ~$0.001 and returns in seconds."""
+    import subprocess
+    import tempfile
+
+    out: list[list[Word]] = []
+    with tempfile.TemporaryDirectory() as td:
+        for j, (media, offset_s) in enumerate(items):
+            audio = Path(td) / f"seg_{j:02d}.ogg"
+            subprocess.run(
+                [ffmpeg_path(), "-y", "-v", "error", "-i", str(media),
+                 "-vn", "-ac", "1", "-ar", "16000",
+                 "-c:a", "libopus", "-b:a", "16k", str(audio)],
+                check=True, capture_output=True)
+            out.append(_groq_words(audio, model, offset_s=offset_s))
+    return out
+
+
 def transcribe_clips(items: list[tuple[Path, float]], model_name: str,
                      compute_type: str) -> list[list[Word]]:
     """Accurate transcription of the chosen clip segments (burned captions

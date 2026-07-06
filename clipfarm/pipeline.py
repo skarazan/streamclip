@@ -59,18 +59,29 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     print("Transcribing locally with Whisper (long streams take a while)...")
     # a transcript from ANY model is good enough for editing/layout/style
     # work — only transcribe fresh when this VOD has never been transcribed.
-    # (New VODs always get the current model; caption-quality upgrades apply
-    # to them automatically.)
+    # provider groq = no GPU anywhere (~200x realtime API); local = whisper.
     t_model = cfg["transcribe"]["model"]
-    cache = vod_work / f"transcript.{t_model.replace('/', '_')}.json"
+    provider = cfg["transcribe"].get("provider", "local")
+    cache = vod_work / ("transcript.groq-turbo.json" if provider == "groq"
+                        else f"transcript.{t_model.replace('/', '_')}.json")
     if not cache.exists():
         older = sorted(vod_work.glob("transcript*.json"))
         if older:
             cache = older[0]
             print(f"Reusing cached transcript {cache.name} — no re-transcribe")
-    words = transcribe.transcribe(
-        audio, t_model, cfg["transcribe"]["compute_type"], cache_path=cache,
-    )
+    if provider == "groq":
+        try:
+            words = transcribe.transcribe_groq(audio, cache_path=cache)
+        except Exception as e:
+            print(f"  groq transcription failed ({str(e)[:120]}) "
+                  f"-> local {t_model}")
+            words = transcribe.transcribe(
+                audio, t_model, cfg["transcribe"]["compute_type"],
+                cache_path=vod_work / f"transcript.{t_model}.json")
+    else:
+        words = transcribe.transcribe(
+            audio, t_model, cfg["transcribe"]["compute_type"], cache_path=cache,
+        )
     dur_h = (words[-1].end / 3600) if words else 0
     print(f"  {len(words)} words, ~{dur_h:.1f}h of speech")
 
@@ -133,7 +144,6 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     out_dir = PROJECT_ROOT / cfg["output"]["dir"] / f"{date.today()}_{vod_id}"
     out_dir.mkdir(parents=True, exist_ok=True)
     style = cfg["style"]
-    results = []
 
     segs = []
     for i, m in enumerate(clips, 1):
@@ -196,36 +206,54 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     # over just these ~90 seconds (base.en heard "BANG BANG" as "BANK")
     cap_model = cfg["transcribe"].get("caption_model")
     cap_words: list = [None] * len(segs)
-    if cap_model and cap_model != t_model:
+    items = [(seg, m.start) for m, seg in zip(clips, segs)]
+    if provider == "groq":
+        report("rendering", "transcribing clips with the accurate model")
+        print(f"Caption pass: groq turbo over {len(segs)} segments...")
+        try:
+            cap_words = transcribe.transcribe_clips_groq(items)
+        except Exception as e:
+            print(f"  groq caption pass failed ({str(e)[:120]})"
+                  + (f" -> local {cap_model}" if cap_model else ""))
+            if cap_model:
+                cap_words = transcribe.transcribe_clips(
+                    items, cap_model, cfg["transcribe"]["compute_type"])
+    elif cap_model and cap_model != t_model:
         report("rendering", "transcribing clips with the accurate model")
         print(f"Caption pass: {cap_model} over {len(segs)} segments...")
         cap_words = transcribe.transcribe_clips(
-            [(seg, m.start) for m, seg in zip(clips, segs)],
-            cap_model, cfg["transcribe"]["compute_type"])
+            items, cap_model, cfg["transcribe"]["compute_type"])
 
-    # 9. render
-    for i, (m, seg, cam) in enumerate(zip(clips, segs, cams), 1):
+    # 9. render — ffmpeg is subprocess-bound, so clips render in parallel
+    report("rendering", f"rendering {len(clips)} clips")
+    top_frac = style.get("split_top", 0.42)
+
+    def _render_one(i_m_seg_cam):
+        i, m, seg, cam = i_m_seg_cam
         name = f"{i:02d}_{_slug(m.title)}"
-        report("rendering", f"clip {i}/{len(clips)}: captions + layout")
         print(f"[{i}/{len(clips)}] Rendering short...")
-        top_frac = style.get("split_top", 0.42)
-        ass = render.build_ass(cap_words[i - 1] or words, m.start, m.end, style,
-                               vod_work / f"seg_{i:02d}.ass",
+        ass = render.build_ass(cap_words[i - 1] or words, m.start, m.end,
+                               style, vod_work / f"seg_{i:02d}.ass",
                                hook=m.hook, hook_color_idx=i - 1,
                                hook_pos=top_frac if cam else None)
         final = render.render_short(seg, ass, out_dir / f"{name}.mp4",
                                     style.get("crop", "center"),
                                     cam=cam, top_frac=top_frac)
-
         meta = out_dir / f"{name}.txt"
         desc = cfg["output"]["description_template"].format(title=m.title)
         meta.write_text(
             f"TITLE: {m.title}\n\nDESCRIPTION:\n{desc}\n"
             f"WHY: {m.reason}\nSOURCE: {vod_url} @ {m.start:.0f}s\n")
         print(f"  -> {final.relative_to(PROJECT_ROOT)}")
-        results.append({"file": str(final), "title": m.title, "hook": m.hook,
-                        "score": m.score, "start_s": m.start, "end_s": m.end})
         seg.unlink(missing_ok=True)  # keep disk usage low
+        return {"file": str(final), "title": m.title, "hook": m.hook,
+                "score": m.score, "start_s": m.start, "end_s": m.end}
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        results = list(ex.map(_render_one,
+                              [(i, m, seg, cam) for i, (m, seg, cam)
+                               in enumerate(zip(clips, segs, cams), 1)]))
 
     # cleanup big audio file, keep transcript cache
     for f in vod_work.glob("vod_audio.*"):

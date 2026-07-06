@@ -47,6 +47,13 @@ Variable per VOD, measured on the real Modal worker (T4 + 8cpu + 8GB ≈
 | Supabase / Twitch metadata | $0 (free tiers) |
 | **Total per fresh VOD** | **~$0.35** (≈ $0.05/VOD-hour rule of thumb) |
 
+**v10 UPDATE (2026-07-06, Groq + CPU-only worker):** transcription moved to
+Groq API (whisper-large-v3-turbo, ~200x realtime, word timestamps): whole-VOD
+~$0.02-0.04/audio-hr + captions ~$0.001. Worker GPU removed (cpu=8 ≈ $0.45/h,
+~7 min/job ≈ $0.05). **New total ≈ $0.23/VOD fresh, ~$0.06 cached rerun; free
+Groq tier (8h audio/day) covers daily testing at $0.** Local fallback chain
+(faster-whisper base.en + distil segments) stays for Groq outages. |
+
 **Tier math (8 credits/mo):** COGS 8 × $0.35 = $2.80 + Stripe $0.73 + verify
 $0.10 = **$3.63 → margin $11.36/customer (76%)**. ✅ Break-even ~5-7 customers.
 Credit packs: $4.99 / 4 GW → COGS $1.40 → 72% margin.

@@ -66,11 +66,14 @@ def poll():
     secrets=[modal.Secret.from_name("streamclip")],
     volumes={"/root/.cache/huggingface": hf_cache,
              "/root/app/work": work_vol},
-    gpu="T4",
+    # CPU-only since transcription moved to the Groq API: ~$0.45/h vs
+    # ~$1.03/h with the T4, and nothing left in the job needs a GPU.
+    # (faster-whisper stays importable as the local fallback — slow on CPU
+    # but only runs if Groq is down.)
     cpu=8.0,
     memory=8192,
     timeout=7200,
-    scaledown_window=10,  # GPU dies seconds after the queue empties
+    scaledown_window=10,  # container dies seconds after the queue empties
 )
 def drain():
     """Claim and process queued jobs until the queue is empty."""

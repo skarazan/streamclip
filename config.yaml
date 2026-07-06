@@ -13,11 +13,12 @@ clips:
 
 # Whisper transcription (runs locally, no API cost)
 transcribe:
-  # Two-tier transcription. `model` covers the WHOLE VOD and only feeds
-  # moment selection — rough text picks moments fine, so cheap+fast wins.
-  # `caption_model` re-transcribes ONLY the chosen clip segments (~90s per
-  # job) for the burned captions, where accuracy is the product
-  # (base.en heard "BANG BANG" as "BANK"). Big model on 90s ≈ free.
+  # provider groq = whisper-large-v3-turbo via API (~200x realtime, ~$0.13
+  # per 6h VOD, word timestamps) -> NO GPU anywhere in the pipeline.
+  # `model`/`caption_model` are the local faster-whisper fallback chain:
+  # cheap whole-VOD model for moment selection, big model only on the ~90s
+  # of chosen segments for burned captions (base.en heard "BANG" as "BANK").
+  provider: "groq"
   model: "base.en"
   caption_model: "distil-large-v3"
   compute_type: "int8"

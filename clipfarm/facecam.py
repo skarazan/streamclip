@@ -242,9 +242,11 @@ def probe_vod(vod_url: str, duration_s: float, work_dir: Path,
     """Probe tiny slices across the WHOLE stream. Returns (identity_emb,
     position_box) — either may be None. Identity survives OBS scene switches;
     the position box is the no-recognizer fallback."""
+    from concurrent.futures import ThreadPoolExecutor
+
     from . import fetch
-    cand_lists = []
-    for i in range(n_probes):
+
+    def _probe(i: int) -> list[dict]:
         t = duration_s * (i + 0.5) / n_probes
         probe = work_dir / f"cam_probe_{i:02d}.mp4"
         try:
@@ -252,12 +254,15 @@ def probe_vod(vod_url: str, duration_s: float, work_dir: Path,
                 fetch.download_segment(vod_url, t, t + probe_len, probe, quality)
             # centered faces allowed here: fullscreen-cam scenes are prime
             # identity evidence even though they render full-frame
-            cand_lists.append(detect_candidates(probe, samples=5,
-                                                allow_center=True))
+            return detect_candidates(probe, samples=5, allow_center=True)
         except Exception as e:
             log(f"  cam probe {i + 1}/{n_probes} failed: {str(e)[:80]}")
+            return []
         finally:
             probe.unlink(missing_ok=True)
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        cand_lists = list(ex.map(_probe, range(n_probes)))
     hits = sum(1 for cl in cand_lists if cl)
     log(f"  cam probes: faces in {hits}/{len(cand_lists)} slices")
     identity = identity_from_probes(cand_lists, log=log)

@@ -57,7 +57,11 @@ export default function ActiveJobs() {
                   <span className="relative inline-flex rounded-full h-3 w-3 bg-[#9146FF]"></span>
                 </span>
                 <span className="font-bold">
-                  {j.status === "queued" ? "Waiting for a worker..." : "Clipping your stream"}
+                  {j.status !== "queued"
+                    ? "Clipping your stream"
+                    : Date.now() - new Date(j.created_at).getTime() > 15 * 60e3
+                      ? "Queue is backed up — your job is saved and will run"
+                      : "Waiting for a worker..."}
                 </span>
               </div>
               <a href={j.vod_url} target="_blank"

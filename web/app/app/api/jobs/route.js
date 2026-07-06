@@ -42,11 +42,15 @@ export async function POST(request) {
   }
 
   const active = await fetch(
-    rest(`/jobs?user_id=eq.${user.id}&status=in.(queued,running)&select=id`),
+    rest(`/jobs?user_id=eq.${user.id}&status=in.(queued,running)&select=id,status,created_at`),
     { headers: svcHeaders(), cache: "no-store" }).then((r) => r.json());
   if (active?.length) {
+    const age = Math.round(
+      (Date.now() - new Date(active[0].created_at).getTime()) / 60000);
     return NextResponse.json(
-      { error: "a clip job is already running — one stream at a time" },
+      { error: active[0].status === "queued" && age > 15
+          ? `a job from ${age} min ago is still waiting in the queue — it runs first, then you can submit this one`
+          : "a clip job is already running — one stream at a time" },
       { status: 409 });
   }
 

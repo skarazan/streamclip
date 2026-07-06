@@ -34,7 +34,7 @@ scoring from user's $10 OpenAI credit).
 | Piece | Detail |
 |---|---|
 | Supabase | project dztfidwbxtfkxitndxtb; tables users/jobs/clips/credit_events (+ jobs.progress jsonb added later); claim_job() RPC (SKIP LOCKED); RLS = users see own rows. DDL changes: user must paste SQL in dashboard SQL editor (we have no DDL access). |
-| Modal | app `streamclip-worker`; deploy: `cd ~/streamclip && ~/clipfarm/.venv/bin/modal deploy worker/modal_worker.py`. T4 GPU, cpu=8, timeout 7200, Period(1 min) drain schedule, volumes: streamclip-hf-cache, streamclip-work (transcript cache per VOD). Free credits ~$30/mo. |
+| Modal | app `streamclip-worker`; deploy: `cd ~/streamclip && ~/clipfarm/.venv/bin/modal deploy worker/modal_worker.py`. TWO functions since 07-05: `poll` (0.125 cpu, Period 1 min, requeue_stale + spawns drain when a ready job exists) and `drain` (T4, cpu=8, timeout 7200, NO schedule, scaledown_window=10). NEVER attach GPU to a schedule — the old 1-min GPU drain idled a T4 near-24/7 (~$25/day), burned free credits + $10 real on 07-05. Volumes: streamclip-hf-cache, streamclip-work. User has dashboard spending cap set. |
 | R2 | bucket streamclip-clips; keys `user_id/job_id/NN.mp4`; presigned URLs from dashboard. |
 | Twitch app | "clipperThatnoOnehasDoneBefore", client id u7k992oxic2a40gfuahe1ag5frogwv; redirect = Supabase callback. Login verified working. |
 | Users | founder: nicholas_sus_tv uid 599228e6-c961-40c0-b88d-6872c9cf02bd (999999 GW, plan=founder). test: uid 6478458b-501d-4675-912c-913845bc5cd9 (twitch_login mutated per test — currently 'jynxzi'). |

@@ -99,6 +99,13 @@ degrades service, never the wallet.
 Fixed monthly floor (infra base, queue, DB, domain): ~$30-80 until scale.
 At $10 margin: **8 customers ≈ break-even. 100 customers ≈ $1k/mo profit.**
 
+**COST INCIDENT 2026-07-05 ($10 real + free credits):** the scheduled drain
+had gpu=T4 on a 1-minute schedule — with idle keep-alive that's a near-24/7
+GPU (~$25/day) polling an empty queue. RULE: **never attach a GPU to a
+schedule.** Architecture now: 0.125-cpu poll heartbeat (pennies/day) spawns
+the GPU drain only when a ready job exists; drain scaledown_window=10s.
+Fixed floor from Modal is now ~$1-4/mo + per-job COGS only.
+
 ## Risks
 
 1. **Distribution** — the actual hard problem. Mitigation: founder's own

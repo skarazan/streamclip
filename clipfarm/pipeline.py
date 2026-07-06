@@ -57,12 +57,19 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     # 3. transcribe (cached)
     report("transcribing")
     print("Transcribing locally with Whisper (long streams take a while)...")
-    # cache is model-specific: upgrading the whisper model must not silently
-    # reuse transcripts from a worse one
+    # a transcript from ANY model is good enough for editing/layout/style
+    # work — only transcribe fresh when this VOD has never been transcribed.
+    # (New VODs always get the current model; caption-quality upgrades apply
+    # to them automatically.)
     t_model = cfg["transcribe"]["model"]
+    cache = vod_work / f"transcript.{t_model.replace('/', '_')}.json"
+    if not cache.exists():
+        older = sorted(vod_work.glob("transcript*.json"))
+        if older:
+            cache = older[0]
+            print(f"Reusing cached transcript {cache.name} — no re-transcribe")
     words = transcribe.transcribe(
-        audio, t_model, cfg["transcribe"]["compute_type"],
-        cache_path=vod_work / f"transcript.{t_model.replace('/', '_')}.json",
+        audio, t_model, cfg["transcribe"]["compute_type"], cache_path=cache,
     )
     dur_h = (words[-1].end / 3600) if words else 0
     print(f"  {len(words)} words, ~{dur_h:.1f}h of speech")

@@ -15,7 +15,7 @@ def _slug(text: str, n: int = 40) -> str:
     return s[:n] or "clip"
 
 
-PIPELINE_VERSION = "v8-captions (distil-large-v3 transcription, model-versioned cache)"
+PIPELINE_VERSION = "v10.1 (groq transcription, cpu-only, context-biased captions)"
 
 
 def run(cfg: dict, vod_url: str | None = None) -> dict:
@@ -211,7 +211,9 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         report("rendering", "transcribing clips with the accurate model")
         print(f"Caption pass: groq turbo over {len(segs)} segments...")
         try:
-            cap_words = transcribe.transcribe_clips_groq(items)
+            ctx = (f"Twitch gaming stream by {cfg.get('streamer_name', 'a streamer')}. "
+                   f"Casual loud speech, screaming, gamer slang.")
+            cap_words = transcribe.transcribe_clips_groq(items, context=ctx)
         except Exception as e:
             print(f"  groq caption pass failed ({str(e)[:120]})"
                   + (f" -> local {cap_model}" if cap_model else ""))

@@ -49,7 +49,8 @@ def transcribe(audio_path: Path, model_name: str, compute_type: str,
     return words
 
 
-def _groq_words(audio: Path, model: str, offset_s: float = 0.0) -> list[Word]:
+def _groq_words(audio: Path, model: str, offset_s: float = 0.0,
+                prompt: str = "") -> list[Word]:
     """One Groq transcription call -> Words shifted to absolute time.
     Retries through free-tier 429s."""
     import os
@@ -63,7 +64,8 @@ def _groq_words(audio: Path, model: str, offset_s: float = 0.0) -> list[Word]:
             headers={"Authorization": f"Bearer {os.environ['GROQ_API_KEY']}"},
             files={"file": (audio.name, audio.read_bytes())},
             data={"model": model, "response_format": "verbose_json",
-                  "timestamp_granularities[]": "word", "language": "en"},
+                  "timestamp_granularities[]": "word", "language": "en",
+                  **({"prompt": prompt[:220]} if prompt else {})},
             timeout=300,
         )
         if r.status_code == 429:
@@ -134,7 +136,8 @@ def transcribe_groq(audio_path: Path, cache_path: Path | None = None,
 
 
 def transcribe_clips_groq(items: list[tuple[Path, float]],
-                          model: str = "whisper-large-v3-turbo") -> list[list[Word]]:
+                          model: str = "whisper-large-v3-turbo",
+                          context: str = "") -> list[list[Word]]:
     """Caption-grade transcription of clip segments via Groq — ~90s of audio
     costs ~$0.001 and returns in seconds."""
     import subprocess
@@ -149,7 +152,10 @@ def transcribe_clips_groq(items: list[tuple[Path, float]],
                  "-vn", "-ac", "1", "-ar", "16000",
                  "-c:a", "libopus", "-b:a", "16k", str(audio)],
                 check=True, capture_output=True)
-            out.append(_groq_words(audio, model, offset_s=offset_s))
+            # context prompt biases decoding — screamed/slurred lines
+            # resolve to plausible words instead of gibberish
+            out.append(_groq_words(audio, model, offset_s=offset_s,
+                                   prompt=context))
     return out
 
 

@@ -31,9 +31,11 @@ export default async function Dashboard() {
 
   const [{ data: profile }, { data: clips }, { data: history }] = await Promise.all([
     sb.from("users").select("*").eq("id", user.id).single(),
+    // r2_key encodes user/job/clip-number: sorting by it is deterministic —
+    // batch insert rows share one created_at, which shuffles randomly
     sb.from("clips").select("*").eq("user_id", user.id)
-      .order("created_at", { ascending: false }),
-    sb.from("jobs").select("id, vod_url, status, created_at, finished_at")
+      .order("r2_key", { ascending: true }),
+    sb.from("jobs").select("id, vod_url, status, created_at, finished_at, progress")
       .eq("user_id", user.id).in("status", ["done", "failed"])
       .order("created_at", { ascending: false }).limit(10),
   ]);
@@ -41,6 +43,14 @@ export default async function Dashboard() {
   const withUrls = await Promise.all(
     (clips || []).map(async (c) => ({ ...c, url: await signed(c.r2_key) }))
   );
+  // one section per stream batch, newest batch first, clips in 01/02/03 order
+  const batches = (history || [])
+    .filter((h) => h.status === "done")
+    .map((h) => ({
+      job: h,
+      clips: withUrls.filter((c) => c.job_id === h.id),
+    }))
+    .filter((b) => b.clips.length > 0);
 
   return (
     <main className="max-w-6xl mx-auto px-6 py-10">
@@ -65,34 +75,52 @@ export default async function Dashboard() {
 
       <ActiveJobs />
 
-      {withUrls.length === 0 ? (
+      {batches.length === 0 ? (
         <div className="text-center py-24 text-gray-400">
           <p className="text-2xl font-bold mb-2">No clips yet</p>
           <p>Your next stream gets clipped automatically. Just go live.</p>
         </div>
       ) : (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {withUrls.map((c) => (
-            <div key={c.id}
-                 className="rounded-2xl p-4 border border-[#23233a] bg-[#12121a]">
-              <video src={c.url} controls preload="metadata"
-                     className="rounded-xl w-full aspect-[9/16] object-cover bg-black" />
-              <div className="flex items-start justify-between mt-3 gap-2">
-                <div>
-                  <p className="font-bold leading-snug">{c.title}</p>
-                  {c.hook && <p className="text-xs text-gray-400 mt-1">{c.hook}</p>}
-                </div>
-                <span className="shrink-0 text-xs font-black px-2 py-1 rounded-lg bg-[#9146FF]/20 text-purple-300">
-                  {Number(c.score).toFixed(0)}/10
+        batches.map(({ job, clips: batchClips }) => (
+          <div key={job.id} className="mb-12">
+            <div className="flex items-center gap-3 mb-3">
+              <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wide">
+                {new Date(job.finished_at || job.created_at).toLocaleDateString()}
+                {" · "}
+                <a href={job.vod_url} target="_blank" className="text-purple-300 hover:underline normal-case">
+                  {job.vod_url.replace("https://www.", "")}
+                </a>
+              </h2>
+              {job.progress?.preset && (
+                <span className="text-[10px] font-black px-2 py-0.5 rounded-full border border-[#2e2e4a] text-gray-400 uppercase">
+                  {job.progress.preset}
                 </span>
-              </div>
-              <a href={c.url} download
-                 className="block text-center mt-3 bg-[#9146FF] hover:bg-[#7a2ff0] text-white text-sm font-bold py-2 rounded-lg">
-                Download
-              </a>
+              )}
             </div>
-          ))}
-        </div>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {batchClips.map((c) => (
+                <div key={c.id}
+                     className="rounded-2xl p-4 border border-[#23233a] bg-[#12121a]">
+                  <video src={c.url} controls preload="metadata"
+                         className="rounded-xl w-full aspect-[9/16] object-cover bg-black" />
+                  <div className="flex items-start justify-between mt-3 gap-2">
+                    <div>
+                      <p className="font-bold leading-snug">{c.title}</p>
+                      {c.hook && <p className="text-xs text-gray-400 mt-1">{c.hook}</p>}
+                    </div>
+                    <span className="shrink-0 text-xs font-black px-2 py-1 rounded-lg bg-[#9146FF]/20 text-purple-300">
+                      {Number(c.score).toFixed(0)}/10
+                    </span>
+                  </div>
+                  <a href={c.url} download
+                     className="block text-center mt-3 bg-[#9146FF] hover:bg-[#7a2ff0] text-white text-sm font-bold py-2 rounded-lg">
+                    Download
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))
       )}
       {(history || []).length > 0 && (
         <div className="mt-14">

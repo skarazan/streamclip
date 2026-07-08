@@ -190,7 +190,8 @@ def process(job: dict) -> None:
 
     sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
        json={"status": "done", "finished_at": "now()",
-             "progress": {"stage": "done", "detail": ""}})
+             "progress": {"stage": "done", "detail": "",
+                          "preset": (cfg["style"].get("preset") or "classic")}})
     sb("POST", "/rest/v1/credit_events",
        json={"user_id": job["user_id"], "delta": -credits_needed,
              "reason": "job" if credits_needed == 1 else "job (long VOD)",

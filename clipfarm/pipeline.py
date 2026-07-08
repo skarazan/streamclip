@@ -197,6 +197,20 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
                 cams[i] = facecam.match_segment(seg, identity)
             elif pos_box:
                 cams[i] = pos_box
+        # rigid layout rule: if the cam was found ANYWHERE in this batch,
+        # every clip gets it. The cam barely moves within one stream, and a
+        # batch mixing split/full-frame looks broken (dark rooms make
+        # per-segment detection flaky). Full-frame only when the whole batch
+        # and the probes found nothing.
+        matched = [c for c in cams if c]
+        if matched and not all(cams):
+            fill = tuple(float(v) for v in
+                         np.median(np.array(matched), axis=0))
+            cams = [c or fill for c in cams]
+            print(f"Facecam: {len(matched)}/{len(segs)} segments matched -> "
+                  "batch-fill for the rest")
+        elif not matched and pos_box:
+            cams = [pos_box] * len(segs)
         for i, c in enumerate(cams, 1):
             print(f"[{i}/{len(segs)}] Facecam "
                   f"{'matched -> split layout' if c else 'none -> full frame'}")

@@ -18,78 +18,66 @@ def _slug(text: str, n: int = 40) -> str:
 PIPELINE_VERSION = "v10.1 (groq transcription, cpu-only, context-biased captions)"
 
 
-def run(cfg: dict, vod_url: str | None = None) -> dict:
-    print(f"pipeline {PIPELINE_VERSION}")
-    t0 = time.time()
-    report = cfg.get("_progress") or (lambda stage, detail="": None)
-    check_disk(cfg)
+def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None):
+    """VOD -> (words, speech-gated loudness profile, scored+reranked moments).
+    Shared by the worker (run) and the long-form compiler; transcript caches
+    per VOD so re-analysis is cheap."""
+    import numpy as np
 
-    work = PROJECT_ROOT / "work"
-    work.mkdir(exist_ok=True)
+    report = report or (lambda *a, **k: None)
+    t_model = cfg["transcribe"]["model"]
+    provider = cfg["transcribe"].get("provider", "local")
+    tr_cache = vod_work / ("transcript.groq-turbo.json" if provider == "groq"
+                           else f"transcript.{t_model.replace('/', '_')}.json")
+    if not tr_cache.exists():
+        older = sorted(vod_work.glob("transcript*.json"))
+        if older:
+            tr_cache = older[0]
+    prof_cache = vod_work / "loudness.npy"
 
-    # 1. locate VOD
-    if vod_url:
-        title = "stream"
-        print(f"Using VOD: {vod_url}")
+    # Fully cached (transcript + loudness) -> no audio download, no Groq, no
+    # ffmpeg. This is the common case: every VOD the worker already clipped is
+    # cached, so compilations reuse that work for free.
+    if tr_cache.exists() and prof_cache.exists():
+        words = [transcribe.Word(**w) for w in json.loads(tr_cache.read_text())]
+        profile = np.load(prof_cache)
+        print(f"Fully cached ({tr_cache.name} + loudness.npy) — no download")
     else:
-        report("finding_vod")
-        print("Finding latest VOD...")
-        vod_url, title = fetch.latest_vod_url(cfg["channel"]["twitch_url"])
-        print(f"Latest VOD: {title}\n  {vod_url}")
-
-    vod_id = _slug(vod_url.rstrip("/").rsplit("/", 1)[-1], 24)
-    vod_work = work / vod_id
-    vod_work.mkdir(exist_ok=True)
-
-    # 2. audio
-    audio_files = [f for f in vod_work.glob("vod_audio.*")
-                   if not f.name.endswith((".part", ".ytdl"))]
-    if audio_files:
-        audio = audio_files[0]
-        print(f"Audio already downloaded: {audio.name}")
-    else:
+        if free_gb() < 1.0:
+            raise RuntimeError(
+                f"only {free_gb():.1f} GB free — need ~1 GB to process a VOD; "
+                f"free up disk (VOD audio is deleted right after, see below)")
         report("downloading_audio")
-        print("Downloading audio track (this is the small download)...")
+        print("Downloading audio track...")
         audio = fetch.download_audio(vod_url, vod_work)
         print(f"  -> {audio.name} ({audio.stat().st_size / 1e6:.0f} MB, "
               f"{free_gb():.1f} GB disk left)")
-
-    # 3. transcribe (cached)
-    report("transcribing")
-    print("Transcribing locally with Whisper (long streams take a while)...")
-    # a transcript from ANY model is good enough for editing/layout/style
-    # work — only transcribe fresh when this VOD has never been transcribed.
-    # provider groq = no GPU anywhere (~200x realtime API); local = whisper.
-    t_model = cfg["transcribe"]["model"]
-    provider = cfg["transcribe"].get("provider", "local")
-    cache = vod_work / ("transcript.groq-turbo.json" if provider == "groq"
-                        else f"transcript.{t_model.replace('/', '_')}.json")
-    if not cache.exists():
-        older = sorted(vod_work.glob("transcript*.json"))
-        if older:
-            cache = older[0]
-            print(f"Reusing cached transcript {cache.name} — no re-transcribe")
-    if provider == "groq":
         try:
-            words = transcribe.transcribe_groq(audio, cache_path=cache)
-        except Exception as e:
-            print(f"  groq transcription failed ({str(e)[:120]}) "
-                  f"-> local {t_model}")
-            words = transcribe.transcribe(
-                audio, t_model, cfg["transcribe"]["compute_type"],
-                cache_path=vod_work / f"transcript.{t_model}.json")
-    else:
-        words = transcribe.transcribe(
-            audio, t_model, cfg["transcribe"]["compute_type"], cache_path=cache,
-        )
+            report("transcribing")
+            print("Transcribing (Groq API, ~200x realtime; cached per VOD)...")
+            if provider == "groq":
+                try:
+                    words = transcribe.transcribe_groq(audio, cache_path=tr_cache)
+                except Exception as e:
+                    print(f"  groq failed ({str(e)[:120]}) -> local {t_model}")
+                    words = transcribe.transcribe(
+                        audio, t_model, cfg["transcribe"]["compute_type"],
+                        cache_path=vod_work / f"transcript.{t_model}.json")
+            else:
+                words = transcribe.transcribe(
+                    audio, t_model, cfg["transcribe"]["compute_type"],
+                    cache_path=tr_cache)
+            print("Analyzing audio loudness...")
+            profile = detect.speech_gated(
+                transcribe.loudness_profile(audio), words)
+            np.save(prof_cache, profile)  # so next comp needs no audio at all
+        finally:
+            # free the big file immediately — transcript + loudness are cached
+            for f in vod_work.glob("vod_audio.*"):
+                f.unlink(missing_ok=True)
     dur_h = (words[-1].end / 3600) if words else 0
     print(f"  {len(words)} words, ~{dur_h:.1f}h of speech")
 
-    # 4. loudness — gated to speech so intro music/soundboards measure zero
-    print("Analyzing audio loudness...")
-    profile = detect.speech_gated(transcribe.loudness_profile(audio), words)
-
-    # 5. moments
     llm = cfg["llm"]
     if words and detect.llm_available(
             llm["model"], llm.get("base_url"), llm.get("api_key_env"),
@@ -98,7 +86,6 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         def _score_log(msg):
             print(msg)
             m = str(msg).strip()
-            # customers see progress, not plumbing
             if m.startswith("!"):
                 m = "switching to a backup AI model..."
             elif m.startswith("(scored with fallback"):
@@ -123,9 +110,35 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
                 streamer=cfg.get("streamer_name", "the streamer"),
                 fallback_models=llm.get("fallback_models"))
     else:
-        print("No API credentials for configured model -> loudness-only mode "
-              "(set ANTHROPIC_API_KEY or OPENAI_API_KEY, see config.yaml llm:).")
+        print("No API credentials for configured model -> loudness-only mode.")
         moments = detect.moments_from_energy(profile)
+    return words, profile, moments
+
+
+def run(cfg: dict, vod_url: str | None = None) -> dict:
+    print(f"pipeline {PIPELINE_VERSION}")
+    t0 = time.time()
+    report = cfg.get("_progress") or (lambda stage, detail="": None)
+    check_disk(cfg)
+
+    work = PROJECT_ROOT / "work"
+    work.mkdir(exist_ok=True)
+
+    # 1. locate VOD
+    if vod_url:
+        title = "stream"
+        print(f"Using VOD: {vod_url}")
+    else:
+        report("finding_vod")
+        print("Finding latest VOD...")
+        vod_url, title = fetch.latest_vod_url(cfg["channel"]["twitch_url"])
+        print(f"Latest VOD: {title}\n  {vod_url}")
+
+    vod_id = _slug(vod_url.rstrip("/").rsplit("/", 1)[-1], 24)
+    vod_work = work / vod_id
+    vod_work.mkdir(exist_ok=True)
+
+    words, profile, moments = analyze_vod(cfg, vod_url, vod_work, report)
 
     clips = detect.select_clips(
         moments, profile,

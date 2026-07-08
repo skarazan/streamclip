@@ -14,18 +14,23 @@ def _run(cmd: list[str], timeout: int = 1800) -> str:
     return r.stdout
 
 
-def latest_vod_url(twitch_url: str) -> tuple[str, str]:
-    """Return (url, title) of the most recent VOD on the channel."""
+def list_vods(twitch_url: str, n: int = 1) -> list[tuple[str, str]]:
+    """Return [(url, title)] for the n most recent archived VODs, newest first."""
     out = _run([
-        "yt-dlp", "--flat-playlist", "--playlist-end", "1", "-J",
+        "yt-dlp", "--flat-playlist", "--playlist-end", str(n), "-J",
         f"{twitch_url.rstrip('/')}/videos?filter=archives&sort=time",
     ])
     data = json.loads(out)
     entries = data.get("entries") or []
-    if not entries:
+    return [(e["url"], e.get("title", "stream")) for e in entries]
+
+
+def latest_vod_url(twitch_url: str) -> tuple[str, str]:
+    """Return (url, title) of the most recent VOD on the channel."""
+    vods = list_vods(twitch_url, 1)
+    if not vods:
         raise RuntimeError(f"No VODs found on {twitch_url}")
-    e = entries[0]
-    return e["url"], e.get("title", "stream")
+    return vods[0]
 
 
 def vod_info(vod_url: str) -> dict:

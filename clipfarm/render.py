@@ -203,9 +203,13 @@ def render_landscape(segment: Path, ass_file: Path, dest: Path,
                f"borderw=6:bordercolor=black@0.9:x=48:y=40")
     cmd = [
         ffmpeg_path(), "-y", "-v", "error",
-        "-i", str(segment),
+        "-fflags", "+genpts", "-i", str(segment),
         "-vf", vf,
-        "-r", "30",
+        # yt-dlp keyframe-cut segments can start audio and video at different
+        # PTS; force CFR video + resampled audio pinned to 0 so every segment
+        # is self-synced and concatenation can't accumulate A/V drift
+        "-vsync", "cfr", "-af", "aresample=async=1:first_pts=0",
+        "-r", "30", "-video_track_timescale", "30000",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
         "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2",
         "-movflags", "+faststart",

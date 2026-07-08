@@ -47,16 +47,18 @@ def _hook_text(hook: str, keyword_color: str) -> str:
 
 def build_ass(words: list[Word], clip_start: float, clip_end: float,
               style: dict, dest: Path, hook: str | None = None,
-              hook_color_idx: int = 0, hook_pos: float | None = None) -> Path:
+              hook_color_idx: int = 0, hook_pos: float | None = None,
+              res: tuple[int, int] = (W, H)) -> Path:
+    W_, H_ = res  # noqa: N806 — vertical shorts by default, 16:9 for comps
     wpl = style.get("words_per_line", 2)
     upper = style.get("uppercase", False)
-    pos_y = int(H * style.get("caption_pos", 0.72))
+    pos_y = int(H_ * style.get("caption_pos", 0.72))
     hook_cfg = style.get("hook", {})
     wm_cfg = style.get("watermark", {})
     clip_len = clip_end - clip_start
 
     header = ASS_HEADER.format(
-        w=W, h=H,
+        w=W_, h=H_,
         cap_font=style["font"], cap_size=style["font_size"],
         cap_color=style["primary_color"], outline_c=style["outline_color"],
         cap_outline=style["outline"],
@@ -82,11 +84,11 @@ def build_ass(words: list[Word], clip_start: float, clip_end: float,
     if hook:
         colors = hook_cfg.get("keyword_colors", ["&H0035D622"])
         kc = colors[hook_color_idx % len(colors)]
-        hook_y = int(H * (hook_pos if hook_pos is not None
+        hook_y = int(H_ * (hook_pos if hook_pos is not None
                           else hook_cfg.get("pos", 0.30)))
         lines.append(
             f"Dialogue: 1,{_ts(0)},{_ts(clip_len)},Hook,,0,0,0,"
-            f"{{\\an5\\pos({W // 2},{hook_y})}}{_hook_text(hook, kc)}")
+            f"{{\\an5\\pos({W_ // 2},{hook_y})}}{_hook_text(hook, kc)}")
 
     # speech captions
     in_clip = [w for w in words if clip_start <= w.start < clip_end and w.text]
@@ -119,7 +121,7 @@ def build_ass(words: list[Word], clip_start: float, clip_end: float,
             blur_tag = f"\\blur{blur}" if blur else ""
             lines.append(
                 f"Dialogue: 0,{_ts(ev_start)},{_ts(ev_end)},Cap,,0,0,0,"
-                f"{{\\an5\\pos({W // 2},{pos_y})\\fad(50,0){blur_tag}}}{text}"
+                f"{{\\an5\\pos({W_ // 2},{pos_y})\\fad(50,0){blur_tag}}}{text}"
             )
     dest.write_text(header + "\n".join(lines), encoding="utf-8")
     return dest
@@ -184,6 +186,35 @@ def _split_filter(segment: Path, cam: tuple[float, float, float, float],
         f"scale={W}:{bot_h}[bot];"
         f"[top][bot]vstack"
     )
+
+
+def render_landscape(segment: Path, ass_file: Path, dest: Path,
+                     badge: str | None = None) -> Path:
+    """16:9 1080p re-encode with burned captions — compilation building block.
+    The source stream frame is already landscape; no cropping, full context.
+    Uniform codec/fps/audio params so segments concat losslessly. `badge`
+    (e.g. "#5") burns a countdown tag top-left for retention."""
+    ass_path = str(ass_file).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    vf = (f"scale=1920:1080:force_original_aspect_ratio=decrease,"
+          f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,ass={ass_path}")
+    if badge:
+        txt = badge.replace(":", "\\:").replace("'", "’")
+        vf += (f",drawtext=text='{txt}':fontcolor=white:fontsize=90:"
+               f"borderw=6:bordercolor=black@0.9:x=48:y=40")
+    cmd = [
+        ffmpeg_path(), "-y", "-v", "error",
+        "-i", str(segment),
+        "-vf", vf,
+        "-r", "30",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2",
+        "-movflags", "+faststart",
+        str(dest),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"landscape render failed: {r.stderr[-2000:]}")
+    return dest
 
 
 def render_short(segment: Path, ass_file: Path, dest: Path, crop: str = "center",

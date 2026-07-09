@@ -86,7 +86,8 @@ def moments_from_vods(channel: str, streams: int, want: int,
         vod_work.mkdir(exist_ok=True)
         print(f"\n=== {vtitle[:60]} ({vod_url}) ===")
         try:
-            words, profile, moments = pipeline.analyze_vod(cfg, vod_url, vod_work)
+            words, profile, moments = pipeline.analyze_vod(
+                cfg, vod_url, vod_work, rerank=False)
         except Exception as e:
             print(f"  skipped ({type(e).__name__}: {str(e)[:100]})")
             continue

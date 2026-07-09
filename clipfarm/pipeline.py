@@ -19,10 +19,13 @@ def _slug(text: str, n: int = 40) -> str:
 PIPELINE_VERSION = "v10.1 (groq transcription, cpu-only, context-biased captions)"
 
 
-def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None):
-    """VOD -> (words, speech-gated loudness profile, scored+reranked moments).
+def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
+                rerank=True):
+    """VOD -> (words, speech-gated loudness profile, scored moments).
     Shared by the worker (run) and the long-form compiler; transcript caches
-    per VOD so re-analysis is cheap."""
+    per VOD so re-analysis is cheap. rerank=True applies the strict editor
+    pass (the 3-Shorts quality bar); comps pass rerank=False for the fuller
+    scored set — more moments to fill a long video, still energy-ranked."""
     import numpy as np
 
     report = report or (lambda *a, **k: None)
@@ -102,7 +105,7 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None):
         if not moments:
             print("  LLM found nothing usable; falling back to loudness.")
             moments = detect.moments_from_energy(profile)
-        else:
+        elif rerank:
             report("scoring", "editor pass: keeping only the bangers")
             moments = detect.rerank_moments(
                 moments, words, profile, llm["model"], log=_score_log,
@@ -233,6 +236,7 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     # moments; the words that get BURNED ON SCREEN come from a premium model
     # over just these ~90 seconds (base.en heard "BANG BANG" as "BANK")
     cap_model = cfg["transcribe"].get("caption_model")
+    provider = cfg["transcribe"].get("provider", "local")
     cap_words: list = [None] * len(segs)
     items = [(seg, m.start) for m, seg in zip(clips, segs)]
     if provider == "groq":

@@ -252,8 +252,12 @@ def title_card(text: str, dest: Path, dur: float = 0.9,
         "-f", "lavfi", "-i",
         f"anullsrc=channel_layout=stereo:sample_rate=44100",
         "-t", str(dur), "-vf", vf, "-shortest",
+        # stream params MUST match render_landscape exactly — the concat
+        # demuxer silently mangles timestamps on mixed timebases/fps (the
+        # half-speed-video bug)
+        "-vsync", "cfr", "-r", "30", "-video_track_timescale", "30000",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-        "-c:a", "aac", "-b:a", "160k",
+        "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2",
         str(dest),
     ]
     r = subprocess.run(cmd, capture_output=True, text=True)

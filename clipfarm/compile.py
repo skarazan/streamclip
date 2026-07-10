@@ -193,6 +193,19 @@ def compile_video(channel: str, title: str, streams: int = 4,
          "-movflags", "+faststart", str(out_video)],
         check=True)
 
+    # sanity: video and audio streams must agree on duration — mixed concat
+    # inputs once produced 2x-long video (half-speed playback) with exit 0
+    probe = subprocess.run(
+        [str(Path(ffmpeg_path()).parent / "ffprobe"), "-v", "error",
+         "-show_entries", "stream=codec_type,duration", "-of", "json",
+         str(out_video)], capture_output=True, text=True)
+    durs = {s["codec_type"]: float(s.get("duration", 0))
+            for s in __import__("json").loads(probe.stdout).get("streams", [])}
+    if abs(durs.get("video", 0) - durs.get("audio", 0)) > 2.0:
+        raise RuntimeError(
+            f"A/V duration mismatch in output: video {durs.get('video'):.0f}s"
+            f" vs audio {durs.get('audio'):.0f}s — concat input params drifted")
+
     desc = _description(title, chapters)
     meta = out_dir / f"{stamp}_{_slug(title)}.txt"
     meta.write_text(desc)

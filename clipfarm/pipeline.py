@@ -237,6 +237,7 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     # over just these ~90 seconds (base.en heard "BANG BANG" as "BANK")
     cap_model = cfg["transcribe"].get("caption_model")
     provider = cfg["transcribe"].get("provider", "local")
+    t_model = cfg["transcribe"]["model"]
     cap_words: list = [None] * len(segs)
     items = [(seg, m.start) for m, seg in zip(clips, segs)]
     if provider == "groq":

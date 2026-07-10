@@ -267,7 +267,20 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         i, m, seg, cam = i_m_seg_cam
         name = f"{i:02d}_{_slug(m.title)}"
         print(f"[{i}/{len(clips)}] Rendering short...")
-        ass = render.build_ass(cap_words[i - 1] or words, m.start, m.end,
+        clip_words = cap_words[i - 1] or words
+        ass_start, ass_end = m.start, m.end
+        # jump-cut dead air (>~2s) so the budget buys punchline, not silence
+        ivals = detect.keep_intervals(words, m.start, m.end)
+        if len(ivals) > 1:
+            saved = (m.end - m.start) - sum(e - s for s, e in ivals)
+            print(f"  jump-cutting {len(ivals) - 1} silence(s), "
+                  f"-{saved:.1f}s dead air")
+            seg = render.cut_silences(
+                seg, [(s - m.start, e - m.start) for s, e in ivals],
+                vod_work / f"seg_{i:02d}_cut.mp4")
+            clip_words = detect.remap_words(clip_words, ivals)
+            ass_start, ass_end = 0.0, sum(e - s for s, e in ivals)
+        ass = render.build_ass(clip_words, ass_start, ass_end,
                                style, vod_work / f"seg_{i:02d}.ass",
                                hook=m.hook, hook_color_idx=i - 1,
                                hook_pos=top_frac if cam else None)
@@ -281,6 +294,7 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
             f"WHY: {m.reason}\nSOURCE: {vod_url} @ {m.start:.0f}s\n")
         print(f"  -> {final.relative_to(PROJECT_ROOT)}")
         seg.unlink(missing_ok=True)  # keep disk usage low
+        (vod_work / f"seg_{i:02d}.mp4").unlink(missing_ok=True)  # pre-cut original
         return {"file": str(final), "title": m.title, "hook": m.hook,
                 "score": m.score, "start_s": m.start, "end_s": m.end}
 

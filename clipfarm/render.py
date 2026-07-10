@@ -221,6 +221,34 @@ def render_landscape(segment: Path, ass_file: Path, dest: Path,
     return dest
 
 
+def cut_silences(segment: Path, keep: list[tuple[float, float]],
+                 dest: Path) -> Path:
+    """Jump-cut a downloaded segment to the given keep-intervals (seconds,
+    relative to segment start). CFR + per-part aresample keeps A/V sync
+    across the concat (same lesson as the compiler)."""
+    parts, pads = [], []
+    for i, (s, e) in enumerate(keep):
+        parts.append(
+            f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS[v{i}];"
+            f"[0:a]atrim=start={s:.3f}:end={e:.3f},asetpts=PTS-STARTPTS,"
+            f"aresample=async=1:first_pts=0[a{i}];")
+        pads.append(f"[v{i}][a{i}]")
+    fc = ("".join(parts) + "".join(pads)
+          + f"concat=n={len(keep)}:v=1:a=1[v][a]")
+    cmd = [
+        ffmpeg_path(), "-y", "-v", "error",
+        "-i", str(segment),
+        "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
+        "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+        "-c:a", "aac", "-b:a", "160k",
+        str(dest),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"silence cut failed: {r.stderr[-2000:]}")
+    return dest
+
+
 def render_short(segment: Path, ass_file: Path, dest: Path, crop: str = "center",
                  cam: tuple[float, float, float, float] | None = None,
                  top_frac: float = 0.42) -> Path:

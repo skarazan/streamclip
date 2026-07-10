@@ -590,6 +590,42 @@ def _settle_end(m: Moment, profile: np.ndarray, words: list[Word],
         last_end = w.end
 
 
+def keep_intervals(words: list[Word], start: float, end: float,
+                   max_gap: float = 2.2, keep_air: float = 0.45
+                   ) -> list[tuple[float, float]]:
+    """Jump-cut plan for one clip: silences longer than max_gap shrink to a
+    beat (keep_air), so the length budget goes to content instead of dead
+    air. Comedic pauses (< max_gap) survive untouched. Returns absolute
+    (start, end) intervals to KEEP; a single interval means no cuts."""
+    ws = [w for w in words if w.end > start and w.start < end]
+    if len(ws) < 2:
+        return [(start, end)]
+    ivals: list[tuple[float, float]] = []
+    cursor = start
+    for a, b in zip(ws, ws[1:]):
+        gap = b.start - a.end
+        if gap > max_gap:
+            ivals.append((cursor, a.end + keep_air * 0.6))
+            cursor = b.start - keep_air * 0.4
+    ivals.append((cursor, end))
+    return ivals
+
+
+def remap_words(words: list[Word], ivals: list[tuple[float, float]]
+                ) -> list[Word]:
+    """Project words onto the compressed (post jump-cut) timeline, 0-based."""
+    out: list[Word] = []
+    elapsed = 0.0
+    for s, e in ivals:
+        for w in words:
+            if w.end <= s or w.start >= e:
+                continue
+            out.append(Word(max(w.start, s) - s + elapsed,
+                            min(w.end, e) - s + elapsed, w.text))
+        elapsed += e - s
+    return out
+
+
 def _trim_head(m: Moment, words: list[Word], max_len: float) -> None:
     """Length budget comes out of the HEAD, never the ending — the punchline
     lives at the end; the start is expendable setup. Cuts land on utterance

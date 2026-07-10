@@ -81,7 +81,10 @@ You get transcript lines as `[seconds] text`. Delivery tags measured from the
 actual audio: [SCREAM]/[loud] = volume, [rapid] = excited fast speech,
 `[pause Ns]` between lines = N seconds of silence (a pause right after a peak
 is a comedic beat and a clean out-point; long pauses are dead air the render
-will jump-cut). Untagged lines were spoken at normal volume. Rules:
+will jump-cut). `[chat exploding: N msgs/5s]` = the live Twitch chat spiked
+at that moment — strong evidence the crowd saw something clip-worthy; look
+for what triggered it just BEFORE the spike (chat lags the moment by a few
+seconds). Untagged lines were spoken at normal volume. Rules:
 - write `reason` FIRST for every moment (2-3 sentences: what happens, what the
   hook is, what the button/payoff is) — then set the fields to match it
 - self_contained: true only if it lands with ZERO outside context. A moment
@@ -249,6 +252,24 @@ def _transcript_lines(words: list[Word],
             cur, cur_start, prev_end = [], None, w.end
     if cur:
         _flush(cur_start, words[-1].end)
+    return lines
+
+
+def _chat_spike_lines(chat: list[tuple[float, float]] | None
+                      ) -> list[tuple[float, str]]:
+    """Chat-density spikes -> [chat exploding] pseudo-transcript lines. The
+    crowd reacts to the same beats a viewer would (PogChampNet's recall
+    signal); volume only — chat sentiment is sarcasm-poisoned. Input is
+    (t, msgs_per_sec) samples from fetch.download_chat."""
+    if not chat:
+        return []
+    rates = np.array([r for _, r in chat])
+    thresh = max(rates.mean() + 2.0 * rates.std(), 1.5)
+    lines, prev = [], -1e9
+    for (t, r) in chat:
+        if r >= thresh and t - prev >= 60:  # one line per burst
+            lines.append((t, f"[chat exploding: {r:.0f} msgs/s]"))
+            prev = t
     return lines
 
 
@@ -450,14 +471,17 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
                    streamer: str = "the streamer",
                    fallback_models: list[str] | None = None,
                    profile: np.ndarray | None = None,
-                   persona: str = "generic") -> list[Moment]:
+                   persona: str = "generic",
+                   chat: list[tuple[float, str]] | None = None
+                   ) -> list[Moment]:
     _models = [model] + [m for m in (fallback_models or []) if m != model]
     persona_txt = PERSONAS.get(persona, PERSONAS["generic"]).format(
         streamer=streamer)
     system = SYSTEM.format(persona=persona_txt)
     _client_for = _client_provider(model, base_url, api_key_env)
 
-    lines = _transcript_lines(words, profile)
+    lines = sorted(_transcript_lines(words, profile)
+                   + _chat_spike_lines(chat), key=lambda x: x[0])
     chunk_s = chunk_minutes * 60
 
     # split lines into time chunks

@@ -14,6 +14,50 @@ def _run(cmd: list[str], timeout: int = 1800) -> str:
     return r.stdout
 
 
+def download_chat(vod_url: str, dest: Path,
+                  duration: float, stride: float = 30.0
+                  ) -> list[tuple[float, float]]:
+    """Chat DENSITY samples -> [(t_seconds, msgs_per_sec)] via Twitch's
+    public GQL comments API. One query returns a ~5s page around an offset,
+    so a full crawl of a 4h VOD is thousands of requests — but the velocity
+    signal only needs density, so we sample a page every `stride` seconds in
+    parallel. Cached as JSON. Volume only; sarcasm breaks chat sentiment."""
+    if dest.exists():
+        return [tuple(x) for x in json.loads(dest.read_text())]
+    import requests
+    from concurrent.futures import ThreadPoolExecutor
+    vid = vod_url.rstrip("/").rsplit("/", 1)[-1]
+    gql = "https://gql.twitch.tv/gql"
+    headers = {"Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko"}
+    sha = "b70a3591ff0f4e0313d126c6a1502d79a1c02baebb288227c582044aa76adf6a"
+
+    def _sample(off: float) -> tuple[float, float] | None:
+        payload = {
+            "operationName": "VideoCommentsByOffsetOrCursor",
+            "variables": {"videoID": vid, "contentOffsetSeconds": int(off)},
+            "extensions": {"persistedQuery": {"version": 1,
+                                              "sha256Hash": sha}},
+        }
+        try:
+            r = requests.post(gql, json=payload, headers=headers, timeout=20)
+            edges = (((r.json().get("data") or {}).get("video") or {})
+                     .get("comments") or {}).get("edges") or []
+            ts = [float(e["node"]["contentOffsetSeconds"]) for e in edges]
+            if len(ts) < 2 or ts[-1] <= ts[0]:
+                return (off, 0.0)
+            return (off, len(ts) / (ts[-1] - ts[0]))
+        except Exception:
+            return None
+
+    offsets = [o * stride for o in range(int(duration // stride) + 1)]
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        msgs = [s for s in ex.map(_sample, offsets) if s is not None]
+    tmp = dest.with_suffix(".tmp")
+    tmp.write_text(json.dumps(msgs))
+    tmp.replace(dest)
+    return msgs
+
+
 def list_vods(twitch_url: str, n: int = 1) -> list[tuple[str, str]]:
     """Return [(url, title)] for the n most recent archived VODs, newest first."""
     out = _run([

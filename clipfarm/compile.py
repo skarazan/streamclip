@@ -69,6 +69,11 @@ def moments_from_vods(channel: str, streams: int, want: int,
     moments across all of them, best first, spread within each stream."""
     cfg = load_config()
     cfg["streamer_name"] = channel
+    # channel handle -> selection persona (rubric + anchors)
+    for key in ("caseoh", "jynxzi"):
+        if key in channel.lower():
+            cfg["persona"] = key
+            break
     twitch_url = f"https://www.twitch.tv/{channel}"
     vods = fetch.list_vods(twitch_url, streams)
     if not vods:
@@ -96,6 +101,18 @@ def moments_from_vods(channel: str, streams: int, want: int,
             cfg["clips"]["min_length"], cfg["clips"]["max_length"],
             words=words, min_gap_s=cfg["clips"].get("min_gap_minutes", 20) * 60)
         for m in picks:
+            # music-risk gate (comps only): a Content ID claim on long-form
+            # redirects the WHOLE video's revenue. Windows that are mostly
+            # non-speech audio are the classic claim surface (stream music,
+            # game OSTs). Speech coverage over the widened comp window:
+            mid = (m.start + m.end) / 2
+            ws, we = max(0.0, mid - clip_len / 2), mid + clip_len / 2
+            speech = sum(min(w.end, we) - max(w.start, ws) for w in words
+                         if w.end > ws and w.start < we)
+            if speech / clip_len < 0.35:
+                print(f"  music-risk skip ({speech / clip_len:.0%} speech): "
+                      f"{m.title[:50]}")
+                continue
             pool.append({"vod_url": vod_url, "start_s": m.start, "end_s": m.end,
                          "title": m.title, "hook": m.hook,
                          "score": m.score, "combined": m.combined})
@@ -112,7 +129,10 @@ def _ts(sec: float) -> str:
 def compile_video(channel: str, title: str, streams: int = 4,
                   target_min: float = 14.0, clip_len: float = CLIP_LEN,
                   quality: str = "best[height<=1080]",
-                  style_user_id: str | None = None) -> dict:
+                  style_user_id: str | None = None,
+                  brand: str | None = None) -> dict:
+    if brand is None:
+        brand = load_config()["output"].get("brand", "")
     # count is set by the required 11-18 min finished length at clip_len each
     count = round(target_min * 60 / clip_len)
     count = max(math.ceil(MIN_MIN * 60 / clip_len),
@@ -133,6 +153,7 @@ def compile_video(channel: str, title: str, streams: int = 4,
     work = Path(tempfile.mkdtemp(prefix="comp_"))
 
     rendered, chapters, cursor = [], [], 0.0
+    card_dur = 0.9
     n = len(clips)
     for i, c in enumerate(clips):
         # widen the tight short-form pick to ~clip_len of context, centred on
@@ -150,9 +171,12 @@ def compile_video(channel: str, title: str, streams: int = 4,
                                work / f"seg_{i:02d}.ass", res=(W, H))
         final = work / f"final_{i:02d}.mp4"
         render.render_landscape(seg, ass, final)
-        rendered.append(final)
-        chapters.append((cursor, c["title"]))
-        cursor += clip_len
+        # branded inter-clip card: editorial framing (reused-content armor)
+        card = render.title_card(c["title"], work / f"card_{i:02d}.mp4",
+                                 dur=card_dur, brand=brand)
+        rendered += [card, final]
+        chapters.append((cursor, c["title"]))  # chapter lands on the card
+        cursor += card_dur + clip_len
         seg.unlink(missing_ok=True)
 
     # concat with a full re-encode + audio resample: stream-copy concat drifts
@@ -212,8 +236,10 @@ if __name__ == "__main__":
     ap.add_argument("--style-user", default=os.environ.get(
         "COMPILE_USER_ID", "599228e6-c961-40c0-b88d-6872c9cf02bd"),
         help="Supabase user id whose caption preset to match")
+    ap.add_argument("--brand", default=None,
+                    help="watermark/card brand text (default: config output.brand)")
     a = ap.parse_args()
     title = a.title or f"{a.channel}'s Funniest Moments"
     compile_video(a.channel, title, streams=a.streams,
                   target_min=a.target_min, clip_len=a.clip_len,
-                  style_user_id=a.style_user)
+                  style_user_id=a.style_user, brand=a.brand)

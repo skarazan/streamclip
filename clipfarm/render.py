@@ -221,6 +221,45 @@ def render_landscape(segment: Path, ass_file: Path, dest: Path,
     return dest
 
 
+def _brand_drawtext(brand: str, h_frac: float = 0.035,
+                    size: int = 30) -> str:
+    """Small always-on channel watermark — consistent editorial identity is
+    the cheapest reused-content-policy armor an automated channel has."""
+    font = Path(__file__).parent / "fonts" / "Montserrat-ExtraBold.ttf"
+    txt = brand.replace("\\", "").replace("'", "").replace(":", "\\:")
+    return (f"drawtext=text='{txt}':fontfile='{font}':fontsize={size}:"
+            f"fontcolor=white@0.55:borderw=2:bordercolor=black@0.35:"
+            f"x=(w-tw)/2:y=h*{h_frac}")
+
+
+def title_card(text: str, dest: Path, dur: float = 0.9,
+               brand: str = "") -> Path:
+    """Branded inter-clip card for compilations (1920x1080, silent, CFR 30).
+    Light 'curated show' framing — reads as editorial, not raw repost."""
+    font = Path(__file__).parent / "fonts" / "Montserrat-ExtraBold.ttf"
+    txt = text.replace("\\", "").replace("'", "").replace(":", "\\:")[:70]
+    vf = (f"drawtext=text='{txt}':fontfile='{font}':fontsize=64:"
+          f"fontcolor=white:x=(w-tw)/2:y=(h-th)/2")
+    if brand:
+        b = brand.replace("\\", "").replace("'", "").replace(":", "\\:")
+        vf += (f",drawtext=text='{b}':fontfile='{font}':fontsize=36:"
+               f"fontcolor=white@0.5:x=(w-tw)/2:y=h*0.82")
+    cmd = [
+        ffmpeg_path(), "-y", "-v", "error",
+        "-f", "lavfi", "-i", f"color=c=0x101012:s=1920x1080:d={dur},fps=30",
+        "-f", "lavfi", "-i",
+        f"anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-t", str(dur), "-vf", vf, "-shortest",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:a", "aac", "-b:a", "160k",
+        str(dest),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"title card failed: {r.stderr[-2000:]}")
+    return dest
+
+
 def cut_silences(segment: Path, keep: list[tuple[float, float]],
                  dest: Path) -> Path:
     """Jump-cut a downloaded segment to the given keep-intervals (seconds,
@@ -251,7 +290,7 @@ def cut_silences(segment: Path, keep: list[tuple[float, float]],
 
 def render_short(segment: Path, ass_file: Path, dest: Path, crop: str = "center",
                  cam: tuple[float, float, float, float] | None = None,
-                 top_frac: float = 0.42) -> Path:
+                 top_frac: float = 0.42, brand: str = "") -> Path:
     if crop == "left":
         x = "0"
     elif crop == "right":
@@ -264,6 +303,8 @@ def render_short(segment: Path, ass_file: Path, dest: Path, crop: str = "center"
         vf = _split_filter(segment, cam, top_frac) + f",ass={ass_path}"
     else:
         vf = f"crop=ih*9/16:ih:{x}:0,scale={W}:{H},ass={ass_path}"
+    if brand:
+        vf += "," + _brand_drawtext(brand)
     cmd = [
         ffmpeg_path(), "-y", "-v", "error",
         "-i", str(segment),

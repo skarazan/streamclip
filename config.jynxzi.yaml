@@ -86,6 +86,7 @@ style:
 
 output:
   dir: "out"
+  brand: ""   # channel handle watermark, e.g. "@YourClips" — empty = off
   description_template: |
     {title} #jynxzi #rainbowsixsiege #shorts #gaming #funny
 

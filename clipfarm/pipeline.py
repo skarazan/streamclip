@@ -82,6 +82,16 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
     dur_h = (words[-1].end / 3600) if words else 0
     print(f"  {len(words)} words, ~{dur_h:.1f}h of speech")
 
+    # chat replay: optional signal, never blocks a run
+    chat = None
+    try:
+        report("transcribing", "sampling chat replay")
+        chat = fetch.download_chat(vod_url, vod_work / "chat.json",
+                                   duration=words[-1].end if words else 0.0)
+        print(f"Chat replay: {len(chat)} density samples")
+    except Exception as e:
+        print(f"Chat replay unavailable ({str(e)[:80]}) — continuing without")
+
     llm = cfg["llm"]
     if words and detect.llm_available(
             llm["model"], llm.get("base_url"), llm.get("api_key_env"),
@@ -102,7 +112,7 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
             base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
             streamer=cfg.get("streamer_name", "the streamer"),
             fallback_models=llm.get("fallback_models"), profile=profile,
-            persona=cfg.get("persona", "generic"))
+            persona=cfg.get("persona", "generic"), chat=chat)
         if not moments:
             print("  LLM found nothing usable; falling back to loudness.")
             moments = detect.moments_from_energy(profile)
@@ -288,7 +298,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
                                hook_pos=top_frac if cam else None)
         final = render.render_short(seg, ass, out_dir / f"{name}.mp4",
                                     style.get("crop", "center"),
-                                    cam=cam, top_frac=top_frac)
+                                    cam=cam, top_frac=top_frac,
+                                    brand=cfg["output"].get("brand", ""))
         meta = out_dir / f"{name}.txt"
         desc = cfg["output"]["description_template"].format(title=m.title)
         meta.write_text(

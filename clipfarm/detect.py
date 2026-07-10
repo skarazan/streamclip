@@ -9,6 +9,8 @@ from .transcribe import Word, energy_score
 
 PACING = 7  # seconds between scoring calls; 0 for paid providers
 
+# reason comes FIRST: the model writes its case before it commits to numbers
+# (CoT-before-score — measurably less variance than score-then-justify)
 MOMENT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -17,14 +19,17 @@ MOMENT_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
+                    "reason": {"type": "string"},
+                    "self_contained": {"type": "boolean"},
+                    "has_button": {"type": "boolean"},
                     "start": {"type": "number"},
                     "end": {"type": "number"},
                     "score": {"type": "integer"},
                     "title": {"type": "string"},
                     "hook": {"type": "string"},
-                    "reason": {"type": "string"},
                 },
-                "required": ["start", "end", "score", "title", "hook", "reason"],
+                "required": ["reason", "self_contained", "has_button",
+                             "start", "end", "score", "title", "hook"],
                 "additionalProperties": False,
             },
         }
@@ -33,14 +38,56 @@ MOMENT_SCHEMA = {
     "additionalProperties": False,
 }
 
-SYSTEM = """You find viral YouTube Shorts moments in Twitch stream transcripts.
-The streamer is {streamer}: a gaming streamer. Viewers clip: big comedic
+# per-streamer selection rubrics + few-shot anchors. Anchors are REAL results
+# from this channel's analytics (research/analytics-intel.md) — they calibrate
+# the score scale and the title formula. Refresh as new data lands.
+PERSONAS = {
+    "caseoh": """{streamer} is a loud, physically expressive comedic streamer.
+His best clips: sudden register shifts (normal talk -> all-caps scream inside
+1-2 sentences), self-interrupting broken speech ("WAIT— NO— NO NO—"), comedic
+overreactions to small triggers. Strong clips have a three-beat shape:
+something happens -> big reaction/scream -> a TAG JOKE riffing on it a few
+seconds later. A scream with no tag is usually incomplete — extend a few
+seconds to catch the button. A hard topic-switch right after the peak is a
+clean out-point.
+CHANNEL DATA: reaction-framed titles win ("panicked so hard he caused a
+tornado" 3.1k views) over object-framing ("summons a tornado with his weight"
+0.9k). Include CASEOH in titles.""",
+    "jynxzi": """{streamer} is a high-energy competitive gaming streamer whose
+best clips are rage or hype moments tied to gameplay OUTCOMES. Look for
+profanity-density spikes, chained short exclamations ("LET'S GOOO", "NO WAY"),
+and game-state callouts (clutch, ace, 1v4, goal, rank-up) near the energy
+spike. Rage/hype arcs build over 30-90s — cut from the TOP of the escalation,
+not just the loudest word. A teammate/chat reaction line after the peak
+("bro...", "what") is the button — include it. Generic complaining with no
+gameplay payoff reads unlikeable, never clip it.
+CHANNEL DATA: stakes-in-title wins big — "JYNXZI AMAZING GOAL IN ROCKETLEAGUE"
+21k views, "JYNXZI is 2 WINS AWAY from DIAMOND" 11.5k. Generic verb titles
+flop — "JYNXZI scores a POWER SHOT" (same game!) got 26 views. ALWAYS name
+JYNXZI + the stakes/outcome, with the peak moment word in CAPS.""",
+    "generic": """{streamer} is a gaming streamer. Viewers clip: big comedic
 reactions, rage moments, absurd one-liners, chat interactions, screaming fits,
-unexpected jokes, self-roasts, game fails with big verbal reactions.
+unexpected jokes, self-roasts, game fails with big verbal reactions.""",
+}
 
-You get transcript lines as `[seconds] text`. Lines tagged [SCREAM] or [loud]
-were measured loud in the actual audio; untagged lines were spoken at normal
-volume. Return the strongest candidate moments. Rules:
+SYSTEM = """You are the lead editor of a Twitch highlights Shorts channel. You
+find moments a professional clip editor would cut into a standalone 15-28s
+YouTube Short. You are ruthless: most of any stream is NOT clip-worthy, and a
+mediocre pick wastes an upload slot.
+
+{persona}
+
+You get transcript lines as `[seconds] text`. Delivery tags measured from the
+actual audio: [SCREAM]/[loud] = volume, [rapid] = excited fast speech,
+`[pause Ns]` between lines = N seconds of silence (a pause right after a peak
+is a comedic beat and a clean out-point; long pauses are dead air the render
+will jump-cut). Untagged lines were spoken at normal volume. Rules:
+- write `reason` FIRST for every moment (2-3 sentences: what happens, what the
+  hook is, what the button/payoff is) — then set the fields to match it
+- self_contained: true only if it lands with ZERO outside context. A moment
+  needing anything from 10 minutes earlier fails, no matter how funny
+- has_button: true if the clip ends on a payoff (tag joke, reveal, reaction
+  line) rather than trailing off after the peak
 - score 1-10, calibrated against the WHOLE multi-hour stream, not this chunk:
   10 = the best moment of the entire stream, 8-9 = elite (most chunks have
   NONE), 6-7 = solid, 5 = borderline. Skip anything under 5. Never inflate —
@@ -61,7 +108,10 @@ volume. Return the strongest candidate moments. Rules:
   If the moment involves a guess, answer, or reveal (word games, quizzes,
   "wait is it X?"), the clip MUST include the reveal and the reaction to it —
   never end during the guessing
-- title: a clickable YouTube Shorts title, punchy, no clickbait lies, max 90 chars
+- title formula (from this channel's real analytics): STREAMER NAME + the
+  stakes/outcome + the peak moment word in CAPS. "JYNXZI AMAZING GOAL IN
+  ROCKETLEAGUE" got 21,000 views; "JYNXZI scores a POWER SHOT" (same game, no
+  stakes, generic verb) got 26. Max 90 chars, no clickbait lies
 - hook: a short on-screen overlay line (3-8 words, sentence case) that teases the
   moment without spoiling the punchline, e.g. "Can you guess why he is *mad*?" or
   "Still not *finished*...". Wrap exactly ONE emotional keyword in *asterisks* —
@@ -96,10 +146,24 @@ RERANK_SCHEMA = {
     "additionalProperties": False,
 }
 
-EDITOR = """You are the final QA editor at a Twitch clips channel. A scorer
-proposed candidate Shorts from {streamer}'s stream. Most candidates are NOT
-worth posting — your channel's reputation is "3 posted-ready bangers, not 100
-maybes". Judge each candidate's post_score 1-10 (7 = the bar for posting):
+EDITOR = """You are the final-approval editor at a Twitch clips channel. A
+scorer proposed candidate Shorts from {streamer}'s stream — but it graded each
+10-minute window in isolation, on a curve. Your job is RELATIVE: judge the
+candidates head-to-head against each other, and pick what actually gets
+posted. Most candidates are NOT worth posting — the channel's reputation is
+"3 post-ready bangers, not 100 maybes".
+
+{persona}
+
+For close calls, explicitly compare the two candidates in your reasoning —
+which first-2-seconds is the stronger scroll-stopper, which has the cleaner
+button — before scoring. A mid-tier moment with an exceptional hook beats a
+richer moment that opens slow. Judge each candidate's post_score 1-10
+(7 = the bar for posting):
+- DISTRUST high loudness + thin reasoning: that pattern means the scorer keyed
+  off volume, not payoff. Loud-but-boring is the #1 false positive
+- MID-SAG check: a great open and a great peak with 10 flat seconds between
+  them retains nobody. The energy must hold or build through the middle
 - one clear peak beat that lands with ZERO stream context
 - escalation: it builds to the peak; flat-voiced repetition is filler, not
   drama, no matter how strong the words are
@@ -160,6 +224,9 @@ def _transcript_lines(words: list[Word],
 
     def _flush(start: float, end: float) -> None:
         text = " ".join(cur)
+        dur = max(end - start, 0.5)
+        if len(cur) / dur >= 4.2:  # excited fast talk — free excitement signal
+            text = "[rapid] " + text
         if profile is not None and len(profile):
             peak = float(profile[int(start):int(end) + 1].max(initial=0.0))
             if peak >= 0.70:
@@ -168,13 +235,18 @@ def _transcript_lines(words: list[Word],
                 text = "[loud] " + text
         lines.append((start, text))
 
+    prev_end = None
     for w in words:
         if cur_start is None:
             cur_start = w.start
+            # surface silence between lines: comedic beats and dead air are
+            # invisible in text otherwise, and both matter for cut points
+            if prev_end is not None and w.start - prev_end >= 2.0:
+                lines.append((prev_end, f"[pause {w.start - prev_end:.0f}s]"))
         cur.append(w.text)
         if w.end - cur_start >= 8.0:
             _flush(cur_start, w.end)
-            cur, cur_start = [], None
+            cur, cur_start, prev_end = [], None, w.end
     if cur:
         _flush(cur_start, words[-1].end)
     return lines
@@ -377,8 +449,12 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
                    api_key_env: str | None = None,
                    streamer: str = "the streamer",
                    fallback_models: list[str] | None = None,
-                   profile: np.ndarray | None = None) -> list[Moment]:
+                   profile: np.ndarray | None = None,
+                   persona: str = "generic") -> list[Moment]:
     _models = [model] + [m for m in (fallback_models or []) if m != model]
+    persona_txt = PERSONAS.get(persona, PERSONAS["generic"]).format(
+        streamer=streamer)
+    system = SYSTEM.format(persona=persona_txt)
     _client_for = _client_provider(model, base_url, api_key_env)
 
     lines = _transcript_lines(words, profile)
@@ -412,7 +488,7 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
         for m_i, m_name in enumerate(list(_models)):
             try:
                 data = _fn_for(m_name)(_client_for(m_name), m_name, body,
-                                       SYSTEM.format(streamer=streamer))
+                                       system)
                 if m_i > 0:
                     with lock:
                         log(f"  (scored with fallback model {m_name})")
@@ -435,6 +511,10 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
         if data is None:
             continue
         for m in data.get("moments", []):
+            # the model wrote the reason first, then committed to this; a
+            # context-dependent moment is dead on arrival for a Short
+            if not m.get("self_contained", True):
+                continue
             if m["score"] >= 5 and m["end"] > m["start"]:
                 moments.append(Moment(
                     start=float(m["start"]), end=float(m["end"]),
@@ -450,7 +530,8 @@ def rerank_moments(moments: list[Moment], words: list[Word],
                    api_key_env: str | None = None,
                    streamer: str = "the streamer",
                    fallback_models: list[str] | None = None,
-                   shortlist: int = 15, post_bar: int = 7) -> list[Moment]:
+                   shortlist: int = 15, post_bar: int = 7,
+                   persona: str = "generic") -> list[Moment]:
     """Editor pass: chunk scoring grades on a curve (every chunk hands out
     10s), so the shortlist gets re-judged head-to-head in ONE call, with the
     measured loudness and full transcript context the chunk scorer never saw.
@@ -503,7 +584,12 @@ def rerank_moments(moments: list[Moment], words: list[Word],
         try:
             data = _fn_for(name)(
                 _client_provider(model, base_url, api_key_env)(name), name,
-                body, EDITOR.format(streamer=streamer), schema=RERANK_SCHEMA)
+                body,
+                EDITOR.format(
+                    streamer=streamer,
+                    persona=PERSONAS.get(persona, PERSONAS["generic"])
+                    .format(streamer=streamer)),
+                schema=RERANK_SCHEMA)
             break
         except Exception as e:
             log(f"  ! editor pass on {name} failed "

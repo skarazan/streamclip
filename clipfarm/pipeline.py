@@ -101,7 +101,8 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
             words, llm["model"], llm["chunk_minutes"], log=_score_log,
             base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
             streamer=cfg.get("streamer_name", "the streamer"),
-            fallback_models=llm.get("fallback_models"), profile=profile)
+            fallback_models=llm.get("fallback_models"), profile=profile,
+            persona=cfg.get("persona", "generic"))
         if not moments:
             print("  LLM found nothing usable; falling back to loudness.")
             moments = detect.moments_from_energy(profile)
@@ -112,7 +113,8 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                 base_url=llm.get("base_url"),
                 api_key_env=llm.get("api_key_env"),
                 streamer=cfg.get("streamer_name", "the streamer"),
-                fallback_models=llm.get("fallback_models"))
+                fallback_models=llm.get("fallback_models"),
+                persona=cfg.get("persona", "generic"))
     else:
         print("No API credentials for configured model -> loudness-only mode.")
         moments = detect.moments_from_energy(profile)

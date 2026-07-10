@@ -573,6 +573,51 @@ def _settle_end(m: Moment, profile: np.ndarray, words: list[Word],
         if w.start < m.end < w.end:
             m.end = w.end + 0.3
             break
+    # finish the utterance: the button is often a QUIET tag line right after
+    # the scream ("...I did my job"), which energy settling can't see. Keep
+    # appending words while the speech is continuous (no real pause), with a
+    # small slack budget past the energy limit.
+    last_end = 0.0
+    for w in words:
+        if w.end <= m.end:
+            last_end = max(last_end, w.end)
+            continue
+        if w.start >= m.end + 0.6:
+            break  # real pause -> utterance over
+        if w.end > limit + 3.0:
+            break  # slack budget spent; don't drag forever
+        m.end = w.end + 0.3
+        last_end = w.end
+
+
+def _trim_head(m: Moment, words: list[Word], max_len: float) -> None:
+    """Length budget comes out of the HEAD, never the ending — the punchline
+    lives at the end; the start is expendable setup. Cuts land on utterance
+    boundaries (word after a pause), and leading dead air goes first even
+    when under budget."""
+    # skip pure leading silence regardless of budget
+    for w in words:
+        if w.end > m.start:
+            if w.start - m.start > 1.2:
+                m.start = w.start - 0.4
+            break
+    if m.end - m.start <= max_len:
+        return
+    floor = m.end - max_len
+    prev_end = 0.0
+    start = floor  # worst case: blind trim (old behaviour)
+    for w in words:
+        if w.end <= floor:
+            prev_end = w.end
+            continue
+        if w.start >= m.end:
+            break
+        # first utterance start at/after the floor = cleanest entry point
+        if w.start >= floor and w.start - prev_end >= 0.5:
+            start = max(floor, w.start - 0.2)
+            break
+        prev_end = w.end
+    m.start = start
 
 
 def _snap_start(m: Moment, words: list[Word], max_len: float) -> None:
@@ -604,8 +649,7 @@ def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
             _settle_end(m, profile, words)
         # over budget: trim dead air at the head — NEVER the ending. The
         # reaction/reveal lives at the end; the start is expendable setup.
-        if m.end - m.start > max_len:
-            m.start = m.end - max_len
+        _trim_head(m, words, max_len)
         _snap_start(m, words, max_len)
         if m.end - m.start < min_len:
             m.start = max(0.0, m.end - min_len)  # more setup; ending stays put

@@ -238,7 +238,9 @@ def title_card(text: str, dest: Path, dur: float = 0.9,
     Light 'curated show' framing — reads as editorial, not raw repost."""
     font = Path(__file__).parent / "fonts" / "Montserrat-ExtraBold.ttf"
     txt = text.replace("\\", "").replace("'", "").replace(":", "\\:")[:70]
-    vf = (f"drawtext=text='{txt}':fontfile='{font}':fontsize=64:"
+    # Montserrat-XB is ~0.62em wide per char: shrink to fit 1920 with margin
+    size = min(64, int(1740 / (0.62 * max(len(txt), 1))))
+    vf = (f"drawtext=text='{txt}':fontfile='{font}':fontsize={size}:"
           f"fontcolor=white:x=(w-tw)/2:y=(h-th)/2")
     if brand:
         b = brand.replace("\\", "").replace("'", "").replace(":", "\\:")

@@ -107,12 +107,27 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
             elif "chunk" in m:
                 m = m.replace("LLM scoring ", "").split("(")[0].strip()
             report("scoring", m)
-        moments = detect.score_with_llm(
-            words, llm["model"], llm["chunk_minutes"], log=_score_log,
-            base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
-            streamer=cfg.get("streamer_name", "the streamer"),
-            fallback_models=llm.get("fallback_models"), profile=profile,
-            persona=cfg.get("persona", "generic"), chat=chat)
+        # scored-moments cache: reruns (comp after worker, card fixes, A/B)
+        # shouldn't re-pay the whole-VOD scoring bill. Keyed by persona since
+        # the rubric changes the picks.
+        mom_cache = vod_work / f"moments.{cfg.get('persona', 'generic')}.json"
+        if mom_cache.exists():
+            moments = [detect.Moment(**d)
+                       for d in json.loads(mom_cache.read_text())]
+            print(f"  {len(moments)} scored moments from cache "
+                  f"({mom_cache.name})")
+        else:
+            moments = detect.score_with_llm(
+                words, llm["model"], llm["chunk_minutes"], log=_score_log,
+                base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
+                streamer=cfg.get("streamer_name", "the streamer"),
+                fallback_models=llm.get("fallback_models"), profile=profile,
+                persona=cfg.get("persona", "generic"), chat=chat)
+            if moments:
+                mom_cache.write_text(json.dumps(
+                    [{"start": m.start, "end": m.end, "score": m.score,
+                      "title": m.title, "hook": m.hook, "reason": m.reason}
+                     for m in moments]))
         if not moments:
             print("  LLM found nothing usable; falling back to loudness.")
             moments = detect.moments_from_energy(profile)

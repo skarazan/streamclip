@@ -224,3 +224,139 @@ Caption pass: groq turbo over 2 segments...
 Done in 50.1 min. Shorts + titles in: out/2026-07-12_2817120673/
 Review each clip, then upload from the YouTube app/studio.
 === shorts done Sun Jul 12 14:26:15 EDT 2026 ===
+pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
+Using VOD: https://www.twitch.tv/videos/2817120673
+Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
+  13624 words, ~4.0h of speech
+Chat replay: 484 density samples
+Scoring moments with gpt-5-mini...
+  ! chunk 3 on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  ! chunk 5 on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  ! chunk 2 on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  ! chunk 1 on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  ! chunk 4 on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  ! chunk 6 on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  (scored with fallback model meta-llama/llama-4-scout-17b-16e-instruct)
+  LLM scoring chunk 1/30 scored
+  (scored with fallback model meta-llama/llama-4-scout-17b-16e-instruct)
+  LLM scoring chunk 2/30 scored
+  (scored with fallback model meta-llama/llama-4-scout-17b-16e-instruct)
+  LLM scoring chunk 3/30 scored
+  LLM scoring chunk 4/30 scored
+  LLM scoring chunk 5/30 scored
+  LLM scoring chunk 6/30 scored
+  LLM scoring chunk 7/30 scored
+  LLM scoring chunk 8/30 scored
+  LLM scoring chunk 9/30 scored
+  LLM scoring chunk 10/30 scored
+  LLM scoring chunk 11/30 scored
+  LLM scoring chunk 12/30 scored
+  LLM scoring chunk 13/30 scored
+  LLM scoring chunk 14/30 scored
+  LLM scoring chunk 15/30 scored
+  LLM scoring chunk 16/30 scored
+  LLM scoring chunk 17/30 scored
+  LLM scoring chunk 18/30 scored
+  LLM scoring chunk 19/30 scored
+  LLM scoring chunk 20/30 scored
+  LLM scoring chunk 21/30 scored
+  LLM scoring chunk 22/30 scored
+  LLM scoring chunk 23/30 scored
+  LLM scoring chunk 24/30 scored
+  LLM scoring chunk 25/30 scored
+  (scored with fallback model meta-llama/llama-4-scout-17b-16e-instruct)
+  LLM scoring chunk 26/30 scored
+  (scored with fallback model meta-llama/llama-4-scout-17b-16e-instruct)
+  LLM scoring chunk 27/30 scored
+  (scored with fallback model meta-llama/llama-4-scout-17b-16e-instruct)
+  LLM scoring chunk 28/30 scored
+  LLM scoring chunk 29/30 scored
+  LLM scoring chunk 30/30 scored
+  ! editor pass on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  editor pass kept 3/15 candidates
+Selected 3 clips:
+  [  17.1m] score 9 energy 0.47  CASEOH SEES BOT, LOSES IT
+  [  43.7m] score 8 energy 0.46  CASEOH LOSES IT OVER 10TH PLACE
+  [  52.0m] score 8 energy 0.29  CASEOH LOSES IT OVER WRONG MAP
+[1/3] Downloading segment 1029s-1042s...
+[2/3] Downloading segment 2621s-2633s...
+[3/3] Downloading segment 3119s-3141s...
+Facecam: cached VOD identity
+Facecam: 2/3 segments matched -> batch-fill for the rest
+[1/3] Facecam matched -> split layout
+[2/3] Facecam matched -> split layout
+[3/3] Facecam matched -> split layout
+Caption pass: groq turbo over 3 segments...
+[1/3] Rendering short...
+[2/3] Rendering short...
+  jump-cutting 2 silence(s), -3.6s dead air
+[3/3] Rendering short...
+  -> out/2026-07-12_2817120673/02_caseoh-loses-it-over-10th-place.mp4
+  -> out/2026-07-12_2817120673/01_caseoh-sees-bot-loses-it.mp4
+  -> out/2026-07-12_2817120673/03_caseoh-loses-it-over-wrong-map.mp4
+
+Done in 46.8 min. Shorts + titles in: out/2026-07-12_2817120673/
+Review each clip, then upload from the YouTube app/studio.
+=== shorts rerun done Sun Jul 12 18:18:40 EDT 2026 ===
+pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
+Using VOD: https://www.twitch.tv/videos/2817120673
+Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
+  13624 words, ~4.0h of speech
+Chat replay: 484 density samples
+Scoring moments with claude-code...
+  LLM scoring chunk 1/30 scored
+  LLM scoring chunk 2/30 scored
+  LLM scoring chunk 3/30 scored
+  LLM scoring chunk 4/30 scored
+  LLM scoring chunk 5/30 scored
+  LLM scoring chunk 6/30 scored
+  LLM scoring chunk 7/30 scored
+  LLM scoring chunk 8/30 scored
+  LLM scoring chunk 9/30 scored
+  LLM scoring chunk 10/30 scored
+  LLM scoring chunk 11/30 scored
+  LLM scoring chunk 12/30 scored
+  LLM scoring chunk 13/30 scored
+  LLM scoring chunk 14/30 scored
+  LLM scoring chunk 15/30 scored
+  LLM scoring chunk 16/30 scored
+  LLM scoring chunk 17/30 scored
+  LLM scoring chunk 18/30 scored
+  LLM scoring chunk 19/30 scored
+  LLM scoring chunk 20/30 scored
+  LLM scoring chunk 21/30 scored
+  LLM scoring chunk 22/30 scored
+  LLM scoring chunk 23/30 scored
+  LLM scoring chunk 24/30 scored
+  LLM scoring chunk 25/30 scored
+  LLM scoring chunk 26/30 scored
+  LLM scoring chunk 27/30 scored
+  LLM scoring chunk 28/30 scored
+  LLM scoring chunk 29/30 scored
+  LLM scoring chunk 30/30 scored
+  editor pass kept 3/15 candidates
+Selected 3 clips:
+  [  10.4m] score 8 energy 0.50  CASEOH spirals thinking chat would call him a CHEATER
+  [  89.1m] score 7 energy 0.47  CASEOH reacts to the WILDEST text story chat sends him
+  [ 240.3m] score 8 energy 0.57  CASEOH SCREAMS through a ritual and has NO CLUE what happened
+[1/3] Downloading segment 622s-640s...
+[2/3] Downloading segment 5344s-5358s...
+[3/3] Downloading segment 14416s-14436s...
+Facecam: cached VOD identity
+Facecam: 2/3 segments matched -> batch-fill for the rest
+[1/3] Facecam matched -> split layout
+[2/3] Facecam matched -> split layout
+[3/3] Facecam matched -> split layout
+Caption pass: groq turbo over 3 segments...
+[1/3] Rendering short...
+[2/3] Rendering short...
+  jump-cutting 1 silence(s), -1.9s dead air
+[3/3] Rendering short...
+  jump-cutting 1 silence(s), -3.4s dead air
+  -> out/2026-07-12_2817120673/02_caseoh-reacts-to-the-wildest-text-story-.mp4
+  -> out/2026-07-12_2817120673/03_caseoh-screams-through-a-ritual-and-has-.mp4
+  -> out/2026-07-12_2817120673/01_caseoh-spirals-thinking-chat-would-call-.mp4
+
+Done in 46.6 min. Shorts + titles in: out/2026-07-12_2817120673/
+Review each clip, then upload from the YouTube app/studio.
+=== claude-scored rerun done Sun Jul 12 19:46:52 EDT 2026 ===

@@ -304,7 +304,7 @@ def llm_available(model: str, base_url: str | None = None,
             if not name.startswith(("gemini", "gpt-", "claude")) \
                     and os.environ.get("GROQ_API_KEY"):
                 return True
-    if model == "claude-code":
+    if model.startswith("claude-code"):
         return _claude_cli() is not None
     if base_url:
         return bool(os.environ.get(api_key_env or "OPENAI_API_KEY"))
@@ -363,10 +363,11 @@ def _score_chunk_claude_code(client, model: str, body: str, system: str = None,
         + json.dumps(schema or MOMENT_SCHEMA)
         + "\n\nTranscript:\n" + body
     )
-    r = subprocess.run(
-        [_claude_cli() or "claude", "-p", prompt],
-        capture_output=True, text=True, timeout=600,
-    )
+    # "claude-code" = CLI default model; "claude-code:opus" etc. pins one
+    cmd = [_claude_cli() or "claude", "-p", prompt]
+    if ":" in model:
+        cmd += ["--model", model.split(":", 1)[1]]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if "Not logged in" in r.stdout:
         raise RuntimeError(
             "claude CLI not logged in — run `claude` in a terminal, type /login, "
@@ -426,7 +427,7 @@ def _score_chunk_openai(client, model: str, body: str, system: str = None,
 
 
 def _fn_for(name: str):
-    if name == "claude-code":
+    if name.startswith("claude-code"):
         return _score_chunk_claude_code
     if name.startswith("claude"):
         return _score_chunk_claude
@@ -443,7 +444,7 @@ def _client_provider(primary: str, base_url: str | None,
             return _clients[name]
         import os
         from openai import OpenAI
-        if name == "claude-code":
+        if name.startswith("claude-code"):
             c = None
         elif name.startswith("claude"):
             import anthropic

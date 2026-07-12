@@ -27,3 +27,10 @@ From YT Studio. Feeds selection-prompt few-shot blocks (positive/negative anchor
 - Cap was cutting mid-punchline w/ dead air left at head → FIXED in detect.py (_trim_head + utterance-complete _settle_end).
 - Multi-facecam clip handled well but "lacks something" (see branding/identity gap).
 - One clip good but boring middle — middle-sag = editor-pass diversity/pacing issue.
+
+## Long-form comp #1 (posted ~Jul 10, data Jul 11, 24h)
+- "Caseoh being fun for 14 minutes" (user's own title) + custom DIY thumbnail
+- 81 views / 2.7 watch-hours = ~2:00 avg view = ~14% retention of 14:14
+- 95.1% Suggested traffic; curve flatlined after ~8h (algorithm tested, dropped it)
+- 0 subs attributed
+- Lessons queued: stakes-title for comps, opener = most zero-context-legible clip (not top-scored), await retention-curve screenshot for cliff location

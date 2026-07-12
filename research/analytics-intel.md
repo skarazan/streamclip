@@ -34,3 +34,4 @@ From YT Studio. Feeds selection-prompt few-shot blocks (positive/negative anchor
 - 95.1% Suggested traffic; curve flatlined after ~8h (algorithm tested, dropped it)
 - 0 subs attributed
 - Lessons queued: stakes-title for comps, opener = most zero-context-legible clip (not top-scored), await retention-curve screenshot for cliff location
+- RETENTION CURVE (Jul 11): 100%→~50% by 1:20, ~20% by 2:30, then FLAT ~10% tail to 14:14. Leak = first two clips + 0:00 title card (hook-window violation). Survivors watch everything. FIXES SHIPPED: hot open (no card before clip 1), VOD round-robin ordering after opener.

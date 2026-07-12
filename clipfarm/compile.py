@@ -117,7 +117,19 @@ def moments_from_vods(channel: str, streams: int, want: int,
                          "title": m.title, "hook": m.hook,
                          "score": m.score, "combined": m.combined})
     pool.sort(key=lambda x: x["combined"], reverse=True)
-    return pool[:want]
+    picks = pool[:want]
+    # retention data: viewers bail in the first 2 clips when the open is
+    # same-flavor. Keep the #1 moment as the opener, then round-robin across
+    # source VODs (each stream = different game/bit) for early variety.
+    by_vod: dict[str, list[dict]] = {}
+    for c in picks[1:]:
+        by_vod.setdefault(c["vod_url"], []).append(c)
+    ordered, vods = [picks[0]] if picks else [], list(by_vod)
+    while len(ordered) < len(picks):
+        for v in vods:
+            if by_vod[v]:
+                ordered.append(by_vod[v].pop(0))
+    return ordered
 
 
 def _ts(sec: float) -> str:
@@ -171,12 +183,19 @@ def compile_video(channel: str, title: str, streams: int = 4,
                                work / f"seg_{i:02d}.ass", res=(W, H))
         final = work / f"final_{i:02d}.mp4"
         render.render_landscape(seg, ass, final)
-        # branded inter-clip card: editorial framing (reused-content armor)
-        card = render.title_card(c["title"], work / f"card_{i:02d}.mp4",
-                                 dur=card_dur, brand=brand)
-        rendered += [card, final]
-        chapters.append((cursor, c["title"]))  # chapter lands on the card
-        cursor += card_dur + clip_len
+        # branded inter-clip card — but NEVER before the opener: retention
+        # data shows the first seconds decide everything, so the video must
+        # open mid-banger, not on 0.9s of black card
+        if i == 0:
+            rendered.append(final)
+            chapters.append((cursor, c["title"]))
+            cursor += clip_len
+        else:
+            card = render.title_card(c["title"], work / f"card_{i:02d}.mp4",
+                                     dur=card_dur, brand=brand)
+            rendered += [card, final]
+            chapters.append((cursor, c["title"]))  # chapter lands on the card
+            cursor += card_dur + clip_len
         seg.unlink(missing_ok=True)
 
     # concat with a full re-encode + audio resample: stream-copy concat drifts

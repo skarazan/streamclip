@@ -1,12 +1,12 @@
 # identity: drives selection rubric, few-shot anchors, title formula
-streamer_name: "Jynxzi"
-persona: "jynxzi"
+streamer_name: "CaseOh"
+persona: "caseoh"
 
 # clipfarm config
 
 channel:
   # Twitch channel to pull VODs from
-  twitch_url: "https://www.twitch.tv/jynxzi"
+  twitch_url: "https://www.twitch.tv/caseoh_"
 
 clips:
   count: 3              # shorts to produce per run
@@ -44,7 +44,7 @@ llm:
   #     OpenRouter: base_url: https://openrouter.ai/api/v1          api_key_env: OPENROUTER_API_KEY  (":free" models)
   # benchmark 2026-07-04 (blind Claude judging): gpt-5-mini best picks/hooks.
   # ~$0.045/stream. scout = fast free fallback, gemini third (free-tier flaky).
-  model: "gpt-5-mini"
+  model: "claude-code"
   fallback_models: ["meta-llama/llama-4-scout-17b-16e-instruct", "gemini-3.5-flash", "llama-3.3-70b-versatile"]
   base_url: null
   api_key_env: "OPENAI_API_KEY"
@@ -88,9 +88,9 @@ output:
   dir: "out"
   brand: ""   # channel handle watermark, e.g. "@YourClips" — empty = off
   description_template: |
-    {title} #jynxzi #rainbowsixsiege #shorts #gaming #funny
+    {title} #caseoh #caseohgames #shorts #gaming #funny
 
-    Clipped from Jynxzi's stream. Full VOD on his channel.
+    Clipped from CaseOh's stream. Full VOD on his channel.
 
 safety:
   min_free_gb: 2        # abort if less free disk than this

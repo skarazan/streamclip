@@ -45,7 +45,7 @@ llm:
   # benchmark 2026-07-04 (blind Claude judging): gpt-5-mini best picks/hooks.
   # ~$0.045/stream. scout = fast free fallback, gemini third (free-tier flaky).
   model: "gpt-5-mini"
-  fallback_models: ["meta-llama/llama-4-scout-17b-16e-instruct", "gemini-3.5-flash", "llama-3.3-70b-versatile"]
+  fallback_models: ["meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.3-70b-versatile"]
   base_url: null
   api_key_env: "OPENAI_API_KEY"
   chunk_minutes: 8      # small chunks: free-tier TPM limits

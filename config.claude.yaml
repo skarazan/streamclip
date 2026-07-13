@@ -10,8 +10,8 @@ channel:
 
 clips:
   count: 3              # shorts to produce per run
-  min_length: 12        # seconds
-  max_length: 28        # short clips = retention; hard cap
+  min_length: 16        # seconds
+  max_length: 40        # room for trigger -> reaction -> button
   min_gap_minutes: 20   # spread the batch across the stream, not one section
   quality: "best[height<=1080]"
 

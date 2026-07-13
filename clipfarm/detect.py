@@ -95,19 +95,25 @@ seconds). Untagged lines were spoken at normal volume. Rules:
   10 = the best moment of the entire stream, 8-9 = elite (most chunks have
   NONE), 6-7 = solid, 5 = borderline. Skip anything under 5. Never inflate —
   a boring chunk should return zero or low-scored moments
-- delivery is content: a "rage moment" or "screaming fit" claim REQUIRES
-  [SCREAM]/[loud] tags at its peak. A quietly muttered line is not a meltdown,
-  and disbelief repeated in a normal voice is not "losing it"
+- delivery check, both directions: a "rage/screaming" claim REQUIRES
+  [SCREAM]/[loud] tags at its peak — but the reverse is NOT true: loud does
+  not mean funny. [SCREAM] tags fire on ANY audio peak, including GAME
+  volume (explosions, in-game voices, music). The transcript content must
+  prove the humor on its own; loudness only corroborates delivery
 - CRITICAL: the transcript mixes the STREAMER's voice with in-game dialogue
   (NPCs, cutscenes, videos on screen). Only the streamer's own reactions count —
   loud, first-person, addressed to chat or the game. NEVER pick a moment whose
   highlight is a game character's line; game dialogue can only be setup for the
   streamer's reaction
-- start/end in seconds; capture the setup AND the reaction/punchline, nothing more
-- moments must be 12-28 seconds long. Aim for 15-20 — short clips retain best.
-  Cut dead air BEFORE the moment; start as late as possible. But NEVER cut the
-  ending short: the reaction must fully play out — screams, laughter, the
-  follow-up line. End 2-3 seconds AFTER the reaction settles, not mid-reaction.
+- start/end in seconds. THE SETUP IS MANDATORY: the clip must contain the
+  thing that CAUSES the reaction (the game event, the chat message being
+  read, the question, the mistake). A reaction whose trigger is off-screen
+  is noise, not a joke — if you can't include the trigger, don't pick the
+  moment. Viewers must understand WHY he's screaming
+- moments must be 18-40 seconds: enough room for trigger -> reaction ->
+  button. Aim 22-32. Trim dead air inside via late start, not by amputating
+  the setup. NEVER cut the ending short: the reaction must fully play out.
+  End 2-3 seconds AFTER the reaction settles, not mid-reaction.
   If the moment involves a guess, answer, or reveal (word games, quizzes,
   "wait is it X?"), the clip MUST include the reveal and the reaction to it —
   never end during the guessing
@@ -179,9 +185,12 @@ richer moment that opens slow. Judge each candidate's post_score 1-10
 - VARIETY: the kept set is posted together as one batch. When candidates are
   the same bit, topic, or moment type (three screams about the same match =
   one clip), keep only the strongest and score the rest below the bar
+SETUP CHECK: with the 90s lead-in you can see what caused the reaction. If
+the suggested bounds start AFTER the trigger, widen start to include it — a
+context-free scream is an automatic cut, no matter how loud.
 Also return tightened start/end as ABSOLUTE stream seconds — transcript lines
 carry [seconds] markers; anchor your cuts to them, never to offsets within the
-snippet. Stay within 10s of the suggestion, 12-28s long, peak in the final
+snippet. Stay within 20s of the suggestion, 18-40s long, peak in the final
 third. Return a sharper title + hook when you can.
 hook: 3-8 words, sentence case, exactly ONE emotional keyword wrapped in
 *asterisks*, never spoils the punchline.
@@ -497,7 +506,10 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
     for t, text in lines:
         if t - cur_t0 >= chunk_s and cur:
             chunks.append(cur)
-            cur, cur_t0 = [], t
+            # 75s of overlap: a bit building across the boundary is visible
+            # in full to at least one chunk
+            cur = [(tt, tx) for tt, tx in cur if tt >= t - 75]
+            cur_t0 = t
         cur.append((t, text))
     if cur:
         chunks.append(cur)
@@ -579,7 +591,9 @@ def rerank_moments(moments: list[Moment], words: list[Word],
         return []
     for m in moments:
         m.energy = energy_score(profile, m.start, m.end)
-        m.combined = m.score + 3.0 * m.energy
+        # energy is a plausibility check, NOT a ranking force — loud game
+        # audio is not humor. Comedy score dominates; mild energy tiebreak.
+        m.combined = m.score + 0.75 * m.energy
     # one loud stretch of the stream can crowd out everything else — build the
     # shortlist round-robin across 30-min buckets so the editor judges the
     # whole stream's best, not one section's
@@ -599,7 +613,7 @@ def rerank_moments(moments: list[Moment], words: list[Word],
 
     blocks = []
     for i, m in enumerate(cand, 1):
-        a, b = m.start - 8, m.end + 8
+        a, b = m.start - 90, m.end + 45  # setup lives BEFORE the pick
         lines = _transcript_lines(
             [w for w in words if a <= w.start <= b], profile)
         snippet = "\n".join(f"[{int(t)}] {text}" for t, text in lines)
@@ -607,7 +621,7 @@ def rerank_moments(moments: list[Moment], words: list[Word],
             f"CANDIDATE {i} | scorer said {m.score:.0f}/10: {m.title}\n"
             f"suggested {m.start:.0f}s -> {m.end:.0f}s | "
             f"measured loudness {m.energy:.2f}\n"
-            f"transcript (8s lead-in/out included):\n{snippet}")
+            f"transcript (90s lead-in / 45s tail included — judge whether the\n  setup is inside the suggested bounds):\n{snippet}")
     body = "\n\n".join(blocks)
 
     data = None
@@ -635,7 +649,7 @@ def rerank_moments(moments: list[Moment], words: list[Word],
             continue
         m = cand[int(c["id"]) - 1]
         s, e = float(c["start"]), float(c["end"])
-        if m.start - 10 <= s < e <= m.end + 10 and 8 <= e - s <= 35:
+        if m.start - 25 <= s < e <= m.end + 15 and 14 <= e - s <= 45:
             m.start, m.end = s, e
             m.edited = True
         m.score = float(c["post_score"])
@@ -809,7 +823,7 @@ def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
             if m.end - m.start < min_len:
                 m.end = m.start + min_len
         m.energy = energy_score(profile, m.start, m.end)
-        m.combined = m.score + 3.0 * m.energy  # loudness = streamer, not NPC
+        m.combined = m.score + 0.75 * m.energy  # comedy ranks, loudness tiebreaks
 
     # near-silent "moments" are usually game dialogue the LLM mistook for content
     moments = [m for m in moments if m.energy >= 0.12]

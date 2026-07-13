@@ -424,3 +424,35 @@ Caption pass: groq turbo over 3 segments...
 Done in 21.5 min. Shorts + titles in: out/2026-07-12_2817120673/
 Review each clip, then upload from the YouTube app/studio.
 === OPUS run done Sun Jul 12 20:19:43 EDT 2026 ===
+pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
+Using VOD: https://www.twitch.tv/videos/2817120673
+Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
+  13624 words, ~4.0h of speech
+Chat replay: 484 density samples
+Scoring moments with claude-code:claude-opus-4-8...
+  42 scored moments from cache (moments.caseoh.json)
+  editor pass kept 3/15 candidates
+Selected 3 clips:
+  [  34.0m] score 7 energy 0.54  CaseOh panicked so hard he just started screaming for Mike
+  [ 150.3m] score 7 energy 0.17  CaseOh lost it and screamed Granny's WHOLE government name
+  [ 240.2m] score 7 energy 0.57  CaseOh has a full meltdown then forgets what he was screaming about
+[1/3] Downloading segment 2042s-2064s...
+[2/3] Downloading segment 9015s-9028s...
+[3/3] Downloading segment 14415s-14438s...
+Facecam: cached VOD identity
+[1/3] Facecam matched -> split layout
+[2/3] Facecam matched -> split layout
+[3/3] Facecam matched -> split layout
+Caption pass: groq turbo over 3 segments...
+[1/3] Rendering short...
+  jump-cutting 1 silence(s), -9.4s dead air
+[2/3] Rendering short...
+[3/3] Rendering short...
+  jump-cutting 1 silence(s), -3.4s dead air
+  -> out/2026-07-12_2817120673/02_caseoh-lost-it-and-screamed-granny-s-who.mp4
+  -> out/2026-07-12_2817120673/01_caseoh-panicked-so-hard-he-just-started-.mp4
+  -> out/2026-07-12_2817120673/03_caseoh-has-a-full-meltdown-then-forgets-.mp4
+
+Done in 4.0 min. Shorts + titles in: out/2026-07-12_2817120673/
+Review each clip, then upload from the YouTube app/studio.
+=== OPUS take2 done Sun Jul 12 23:53:40 EDT 2026 ===

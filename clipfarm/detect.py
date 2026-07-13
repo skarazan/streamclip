@@ -363,18 +363,24 @@ def _score_chunk_claude_code(client, model: str, body: str, system: str = None,
         + json.dumps(schema or MOMENT_SCHEMA)
         + "\n\nTranscript:\n" + body
     )
-    # "claude-code" = CLI default model; "claude-code:opus" etc. pins one
-    cmd = [_claude_cli() or "claude", "-p", prompt]
+    # "claude-code" = CLI default model; "claude-code:opus" etc. pins one.
+    # Prompt goes via STDIN: editor-pass prompts are big enough to break as
+    # an argv argument, and stdin is the CLI's supported piping path.
+    cmd = [_claude_cli() or "claude", "-p"]
     if ":" in model:
         cmd += ["--model", model.split(":", 1)[1]]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    if "Not logged in" in r.stdout:
-        raise RuntimeError(
-            "claude CLI not logged in — run `claude` in a terminal, type /login, "
-            "choose your Claude subscription account")
-    if r.returncode != 0:
-        raise RuntimeError(f"claude CLI failed: {r.stderr[-500:]}")
-    return _extract_json(r.stdout)
+    last_err = ""
+    for attempt in (1, 2):
+        r = subprocess.run(cmd, input=prompt, capture_output=True,
+                           text=True, timeout=600)
+        if "Not logged in" in r.stdout:
+            raise RuntimeError(
+                "claude CLI not logged in — run `claude` in a terminal, type "
+                "/login, choose your Claude subscription account")
+        if r.returncode == 0:
+            return _extract_json(r.stdout)
+        last_err = (r.stderr.strip() or r.stdout.strip())[-500:]
+    raise RuntimeError(f"claude CLI failed after 2 tries: {last_err}")
 
 
 def _score_chunk_openai(client, model: str, body: str, system: str = None,

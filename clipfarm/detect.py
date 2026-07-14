@@ -20,6 +20,14 @@ MOMENT_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "reason": {"type": "string"},
+                    "archetype": {"type": "string", "enum": [
+                        "banter_roast", "soundbite", "bit_commitment",
+                        "stinger", "wholesome", "rage_arc",
+                        "coincidence_verbal", "physical_fail",
+                        "destructive_rage", "irl_reveal",
+                        "clutch_needs_replay", "other"]},
+                    "trigger_quote": {"type": "string"},
+                    "button_quote": {"type": "string"},
                     "self_contained": {"type": "boolean"},
                     "has_button": {"type": "boolean"},
                     "start": {"type": "number"},
@@ -28,7 +36,8 @@ MOMENT_SCHEMA = {
                     "title": {"type": "string"},
                     "hook": {"type": "string"},
                 },
-                "required": ["reason", "self_contained", "has_button",
+                "required": ["reason", "archetype", "trigger_quote",
+                             "button_quote", "self_contained", "has_button",
                              "start", "end", "score", "title", "hook"],
                 "additionalProperties": False,
             },
@@ -85,8 +94,20 @@ will jump-cut). `[chat exploding: N msgs/5s]` = the live Twitch chat spiked
 at that moment — strong evidence the crowd saw something clip-worthy; look
 for what triggered it just BEFORE the spike (chat lags the moment by a few
 seconds). Untagged lines were spoken at normal volume. Rules:
-- write `reason` FIRST for every moment (2-3 sentences: what happens, what the
-  hook is, what the button/payoff is) — then set the fields to match it
+- write `reason` FIRST (2-3 sentences), then PROVE you understood the moment:
+  `trigger_quote` = the exact transcript words of the thing that CAUSES the
+  reaction; `button_quote` = the exact words of the payoff/tag. If you cannot
+  quote a real trigger from the transcript, the moment does not qualify —
+  no quote, no clip
+- `archetype`: classify the moment. AUTO-REJECT (do not return) archetypes
+  whose payoff our format cannot show — physical_fail (the fall/crash is
+  outside the facecam crop), destructive_rage (needs the wide shot),
+  irl_reveal (second person off-frame), clutch_needs_replay (stakes need a
+  killcam). Favor: banter_roast, soundbite, bit_commitment, rage_arc,
+  coincidence_verbal, wholesome, stinger
+- a `[viewers asked to clip this]` tag is a HINT with limited authority:
+  streamers also say "clip it" to save bugs or reports for later review.
+  The moment must still earn its place through trigger/button/archetype
 - self_contained: true only if it lands with ZERO outside context. A moment
   needing anything from 10 minutes earlier fails, no matter how funny
 - has_button: true if the clip ends on a payoff (tag joke, reveal, reaction
@@ -233,17 +254,36 @@ def _transcript_lines(words: list[Word],
     lines are tagged [SCREAM]/[loud] so a text-only model can hear delivery —
     without this it can't tell a genuine meltdown from a muttered one-liner."""
     lines, cur, cur_start = [], [], None
+    # RELATIVE loudness: thresholds float on the streamer's own rolling
+    # baseline instead of absolute dB. A permanently-loud streamer (CaseOh)
+    # doesn't read as all-SCREAM, and quiet streamers' genuine peaks aren't
+    # invisible. Game-audio false positives drop with it.
+    base = None
+    if profile is not None and len(profile):
+        nz = profile[profile > 0.03]
+        base = float(np.median(nz)) if len(nz) else 0.2
 
     def _flush(start: float, end: float) -> None:
         text = " ".join(cur)
         dur = max(end - start, 0.5)
         if len(cur) / dur >= 4.2:  # excited fast talk — free excitement signal
             text = "[rapid] " + text
-        if profile is not None and len(profile):
+        # repetition escalation: same word looped = rage/hype arc marker
+        toks = [t.lower().strip(".,!?") for t in cur]
+        for t in set(toks):
+            if len(t) > 1 and toks.count(t) >= 4:
+                text = f"[repeat x{toks.count(t)}] " + text
+                break
+        if base is not None:
+            # local baseline: this 10-min neighbourhood of the stream
+            lo, hi = max(0, int(start) - 300), int(end) + 300
+            seg = profile[lo:hi]
+            nz = seg[seg > 0.03]
+            b = float(np.median(nz)) if len(nz) else base
             peak = float(profile[int(start):int(end) + 1].max(initial=0.0))
-            if peak >= 0.70:
+            if peak >= max(0.50, 2.0 * b):
                 text = "[SCREAM] " + text
-            elif peak >= 0.45:
+            elif peak >= max(0.32, 1.45 * b):
                 text = "[loud] " + text
         lines.append((start, text))
 
@@ -264,21 +304,66 @@ def _transcript_lines(words: list[Word],
     return lines
 
 
-def _chat_spike_lines(chat: list[tuple[float, float]] | None
-                      ) -> list[tuple[float, str]]:
-    """Chat-density spikes -> [chat exploding] pseudo-transcript lines. The
-    crowd reacts to the same beats a viewer would (PogChampNet's recall
-    signal); volume only — chat sentiment is sarcasm-poisoned. Input is
-    (t, msgs_per_sec) samples from fetch.download_chat."""
+_LAUGH_EMOTES = ("kekw", "lul", "omegalul", "lmao", "lmfao", "😂", "🤣",
+                 "haha", "icant", "dead")
+_CALLOUT_RE = None  # compiled lazily
+
+
+def _chat_signal_lines(chat: dict | None) -> list[tuple[float, str]]:
+    """Chat -> pseudo-transcript lines. Three signals, weakest to strongest:
+    density spikes (volume only — sarcasm-poisoned), laugh-emote bursts
+    (semantics beat raw rate, EMNLP'17), and 'clip that' callouts. Callouts
+    are deliberately power-capped: a HINT tag only — streamers also say
+    'clip it' to save bugs/reports for review, so the rubric still decides."""
     if not chat:
         return []
-    rates = np.array([r for _, r in chat])
-    thresh = max(rates.mean() + 2.0 * rates.std(), 1.5)
-    lines, prev = [], -1e9
-    for (t, r) in chat:
-        if r >= thresh and t - prev >= 60:  # one line per burst
-            lines.append((t, f"[chat exploding: {r:.0f} msgs/s]"))
-            prev = t
+    lines: list[tuple[float, str]] = []
+
+    density = chat.get("density") or []
+    if density:
+        rates = np.array([r for _, r in density])
+        thresh = max(rates.mean() + 2.0 * rates.std(), 1.5)
+        prev = -1e9
+        for (t, r) in density:
+            if r >= thresh and t - prev >= 60:
+                lines.append((t, f"[chat exploding: {r:.0f} msgs/s]"))
+                prev = t
+
+    texts = chat.get("texts") or []
+    if texts:
+        import re as _re
+        global _CALLOUT_RE
+        if _CALLOUT_RE is None:
+            _CALLOUT_RE = _re.compile(
+                r"\b(clip (that|it|this)|someone clip|clip pls|clipper?s\b)",
+                _re.IGNORECASE)
+        # laugh-emote bursts per 10s bucket
+        buckets: dict[int, int] = {}
+        for t, msg in texts:
+            m = msg.lower()
+            if any(e in m for e in _LAUGH_EMOTES):
+                buckets[int(t // 10)] = buckets.get(int(t // 10), 0) + 1
+        if buckets:
+            vals = np.array(list(buckets.values()))
+            bthresh = max(float(vals.mean() + 2.0 * vals.std()), 4.0)
+            prev = -1e9
+            for b in sorted(buckets):
+                if buckets[b] >= bthresh and b * 10 - prev >= 60:
+                    lines.append((float(b * 10),
+                                  f"[chat spamming laugh emotes x{buckets[b]}]"))
+                    prev = b * 10
+        # callouts: cap at the 6 earliest per stream so a spammy chat can't
+        # flood the transcript with fake importance
+        seen = 0
+        prev = -1e9
+        for t, msg in texts:
+            if _CALLOUT_RE.search(msg) and t - prev >= 90:
+                lines.append((t, "[viewers asked to clip this — hint only: "
+                                 "verify the moment itself is worth it]"))
+                prev = t
+                seen += 1
+                if seen >= 6:
+                    break
     return lines
 
 
@@ -497,7 +582,7 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
     _client_for = _client_provider(model, base_url, api_key_env)
 
     lines = sorted(_transcript_lines(words, profile)
-                   + _chat_spike_lines(chat), key=lambda x: x[0])
+                   + _chat_signal_lines(chat), key=lambda x: x[0])
     chunk_s = chunk_minutes * 60
 
     # split lines into time chunks
@@ -558,6 +643,9 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
             # context-dependent moment is dead on arrival for a Short
             if not m.get("self_contained", True):
                 continue
+            if m.get("archetype") in ("physical_fail", "destructive_rage",
+                                      "irl_reveal", "clutch_needs_replay"):
+                continue  # payoff structurally outside captions+facecam
             if m["score"] >= 5 and m["end"] > m["start"]:
                 moments.append(Moment(
                     start=float(m["start"]), end=float(m["end"]),

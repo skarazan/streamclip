@@ -88,7 +88,9 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
         report("transcribing", "sampling chat replay")
         chat = fetch.download_chat(vod_url, vod_work / "chat.json",
                                    duration=words[-1].end if words else 0.0)
-        print(f"Chat replay: {len(chat)} density samples")
+        print(f"Chat replay: {len(chat.get('density', []))} density samples, "
+              f"{len(chat.get('texts', []))} messages "
+              f"({'full crawl' if chat.get('full') else 'sampled'})")
     except Exception as e:
         print(f"Chat replay unavailable ({str(e)[:80]}) — continuing without")
 

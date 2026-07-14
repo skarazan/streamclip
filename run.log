@@ -456,3 +456,65 @@ Caption pass: groq turbo over 3 segments...
 Done in 4.0 min. Shorts + titles in: out/2026-07-12_2817120673/
 Review each clip, then upload from the YouTube app/studio.
 === OPUS take2 done Sun Jul 12 23:53:40 EDT 2026 ===
+pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
+Using VOD: https://www.twitch.tv/videos/2817120673
+Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
+  13624 words, ~4.0h of speech
+Chat replay: 484 density samples
+Scoring moments with claude-code:claude-opus-4-8...
+  LLM scoring chunk 1/30 scored
+  LLM scoring chunk 2/30 scored
+  LLM scoring chunk 3/30 scored
+  LLM scoring chunk 4/30 scored
+  LLM scoring chunk 5/30 scored
+  LLM scoring chunk 6/30 scored
+  LLM scoring chunk 7/30 scored
+  LLM scoring chunk 8/30 scored
+  LLM scoring chunk 9/30 scored
+  LLM scoring chunk 10/30 scored
+  LLM scoring chunk 11/30 scored
+  LLM scoring chunk 12/30 scored
+  LLM scoring chunk 13/30 scored
+  LLM scoring chunk 14/30 scored
+  LLM scoring chunk 15/30 scored
+  LLM scoring chunk 16/30 scored
+  LLM scoring chunk 17/30 scored
+  LLM scoring chunk 18/30 scored
+  LLM scoring chunk 19/30 scored
+  LLM scoring chunk 20/30 scored
+  LLM scoring chunk 21/30 scored
+  LLM scoring chunk 22/30 scored
+  LLM scoring chunk 23/30 scored
+  LLM scoring chunk 24/30 scored
+  LLM scoring chunk 25/30 scored
+  LLM scoring chunk 26/30 scored
+  LLM scoring chunk 27/30 scored
+  LLM scoring chunk 28/30 scored
+  LLM scoring chunk 29/30 scored
+  LLM scoring chunk 30/30 scored
+  editor pass kept 3/15 candidates
+Selected 3 clips:
+  [  10.1m] score 7 energy 0.48  CaseOh panics he's about to get accused of cheating over one word
+  [  33.6m] score 7 energy 0.48  CaseOh instantly regrets the greedy play he swore would work
+  [ 240.0m] score 8 energy 0.53  CaseOh talks huge trash to the killer then instantly gets got
+[1/3] Downloading segment 605s-640s...
+[2/3] Downloading segment 2017s-2050s...
+[3/3] Downloading segment 14400s-14438s...
+Facecam: cached VOD identity
+[1/3] Facecam matched -> split layout
+[2/3] Facecam matched -> split layout
+[3/3] Facecam matched -> split layout
+Caption pass: groq turbo over 3 segments...
+[1/3] Rendering short...
+  jump-cutting 1 silence(s), -14.3s dead air
+[2/3] Rendering short...
+  jump-cutting 4 silence(s), -10.9s dead air
+[3/3] Rendering short...
+  jump-cutting 3 silence(s), -11.6s dead air
+  -> out/2026-07-13_2817120673/01_caseoh-panics-he-s-about-to-get-accused-.mp4
+  -> out/2026-07-13_2817120673/03_caseoh-talks-huge-trash-to-the-killer-th.mp4
+  -> out/2026-07-13_2817120673/02_caseoh-instantly-regrets-the-greedy-play.mp4
+
+Done in 29.0 min. Shorts + titles in: out/2026-07-13_2817120673/
+Review each clip, then upload from the YouTube app/studio.
+=== OPUS v3 contextual done Mon Jul 13 19:52:15 EDT 2026 ===

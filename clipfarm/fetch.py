@@ -14,48 +14,104 @@ def _run(cmd: list[str], timeout: int = 1800) -> str:
     return r.stdout
 
 
-def download_chat(vod_url: str, dest: Path,
-                  duration: float, stride: float = 30.0
-                  ) -> list[tuple[float, float]]:
-    """Chat DENSITY samples -> [(t_seconds, msgs_per_sec)] via Twitch's
-    public GQL comments API. One query returns a ~5s page around an offset,
-    so a full crawl of a 4h VOD is thousands of requests — but the velocity
-    signal only needs density, so we sample a page every `stride` seconds in
-    parallel. Cached as JSON. Volume only; sarcasm breaks chat sentiment."""
-    if dest.exists():
-        return [tuple(x) for x in json.loads(dest.read_text())]
+_GQL = "https://gql.twitch.tv/gql"
+_GQL_HEADERS = {"Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko"}
+_GQL_SHA = "b70a3591ff0f4e0313d126c6a1502d79a1c02baebb288227c582044aa76adf6a"
+
+
+def _chat_page(vid: str, offset: int) -> list[tuple[float, str]]:
     import requests
+    payload = {
+        "operationName": "VideoCommentsByOffsetOrCursor",
+        "variables": {"videoID": vid, "contentOffsetSeconds": int(offset)},
+        "extensions": {"persistedQuery": {"version": 1, "sha256Hash": _GQL_SHA}},
+    }
+    r = requests.post(_GQL, json=payload, headers=_GQL_HEADERS, timeout=20)
+    edges = (((r.json().get("data") or {}).get("video") or {})
+             .get("comments") or {}).get("edges") or []
+    out = []
+    for e in edges:
+        node = e["node"]
+        text = "".join(f.get("text", "")
+                       for f in node["message"].get("fragments", []))
+        out.append((float(node["contentOffsetSeconds"]), text))
+    return out
+
+
+def download_chat(vod_url: str, dest: Path, duration: float,
+                  stride: float = 30.0, full_page_budget: int = 150) -> dict:
+    """Chat replay, adaptive: SMALL channels get a FULL message crawl (a page
+    is ~50 messages regardless of time span, so slow chat = few pages = the
+    whole chat for free — exactly the customers whose signal is scarce). Big
+    channels fall back to density sampling (a page per `stride` seconds).
+    Returns {"density": [(t, msgs_per_sec)], "texts": [(t, msg)] | [],
+    "full": bool}. Cached as JSON (v2)."""
+    if dest.exists():
+        d = json.loads(dest.read_text())
+        if isinstance(d, dict) and d.get("v") == 2:
+            return d
+        if isinstance(d, list):  # v1 cache: density-only
+            return {"v": 2, "density": [tuple(x) for x in d],
+                    "texts": [], "full": False}
+    import requests  # noqa: F401  (used via _chat_page)
     from concurrent.futures import ThreadPoolExecutor
     vid = vod_url.rstrip("/").rsplit("/", 1)[-1]
-    gql = "https://gql.twitch.tv/gql"
-    headers = {"Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko"}
-    sha = "b70a3591ff0f4e0313d126c6a1502d79a1c02baebb288227c582044aa76adf6a"
 
-    def _sample(off: float) -> tuple[float, float] | None:
-        payload = {
-            "operationName": "VideoCommentsByOffsetOrCursor",
-            "variables": {"videoID": vid, "contentOffsetSeconds": int(off)},
-            "extensions": {"persistedQuery": {"version": 1,
-                                              "sha256Hash": sha}},
-        }
+    # attempt full offset-walk within the page budget
+    texts: list[tuple[float, str]] = []
+    offset, full = 0, True
+    for _ in range(full_page_budget):
         try:
-            r = requests.post(gql, json=payload, headers=headers, timeout=20)
-            edges = (((r.json().get("data") or {}).get("video") or {})
-                     .get("comments") or {}).get("edges") or []
-            ts = [float(e["node"]["contentOffsetSeconds"]) for e in edges]
-            if len(ts) < 2 or ts[-1] <= ts[0]:
-                return (off, 0.0)
-            return (off, len(ts) / (ts[-1] - ts[0]))
+            page = _chat_page(vid, offset)
         except Exception:
-            return None
+            page = []
+        if not page:
+            break
+        texts.extend(p for p in page if p[0] > (texts[-1][0] if texts else -1))
+        last = page[-1][0]
+        if last >= duration - 5:
+            break
+        if last <= offset:
+            offset += 10
+        else:
+            offset = int(last) + 1
+    else:
+        full = False  # budget exhausted: chat too busy for a full crawl
 
-    offsets = [o * stride for o in range(int(duration // stride) + 1)]
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        msgs = [s for s in ex.map(_sample, offsets) if s is not None]
+    if full and texts:
+        # density derived directly from the complete message list
+        import numpy as _np
+        counts = _np.zeros(int(duration // stride) + 1)
+        for t, _m in texts:
+            if t < duration + stride:
+                counts[min(int(t // stride), len(counts) - 1)] += 1
+        density = [(i * stride, c / stride) for i, c in enumerate(counts)]
+    else:
+        # busy chat: sampled density (as before), keep sampled texts for
+        # emote/callout analysis (partial coverage, still useful)
+        texts = []
+
+        def _sample(off: float):
+            try:
+                page = _chat_page(vid, int(off))
+                if len(page) < 2 or page[-1][0] <= page[0][0]:
+                    return (off, 0.0, page)
+                return (off, len(page) / (page[-1][0] - page[0][0]), page)
+            except Exception:
+                return None
+        offsets = [o * stride for o in range(int(duration // stride) + 1)]
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            res = [s for s in ex.map(_sample, offsets) if s is not None]
+        density = [(off, rate) for off, rate, _ in res]
+        for _off, _rate, page in res:
+            texts.extend(page)
+        texts.sort(key=lambda x: x[0])
+
+    out = {"v": 2, "density": density, "texts": texts, "full": full}
     tmp = dest.with_suffix(".tmp")
-    tmp.write_text(json.dumps(msgs))
+    tmp.write_text(json.dumps(out))
     tmp.replace(dest)
-    return msgs
+    return out
 
 
 def list_vods(twitch_url: str, n: int = 1) -> list[tuple[str, str]]:

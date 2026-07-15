@@ -215,7 +215,14 @@ snippet. Stay within 20s of the suggestion, 18-40s long, peak in the final
 third. Return a sharper title + hook when you can.
 hook: 3-8 words, sentence case, exactly ONE emotional keyword wrapped in
 *asterisks*, never spoils the punchline.
-Be ruthless: returning ZERO keeps is a valid, respected answer."""
+Candidates tagged [CROWD GROUND TRUTH: N viewers clipped this] were marked
+clip-worthy by real humans watching live — that endorsement outranks your own
+taste. For those, do NOT judge WHETHER they're worth posting; judge only the
+boundaries, title and hook, and keep them unless the payoff is structurally
+impossible in captions+facecam format (physical fail off-camera, second
+person out of frame). A crowd moment with almost no dialogue is a STINGER —
+keep it tight (18-25s) and let the reaction carry it.
+Be ruthless with everything else: returning ZERO non-crowd keeps is valid."""
 
 
 def speech_gated(profile: np.ndarray, words: list[Word],
@@ -246,6 +253,7 @@ class Moment:
     energy: float = 0.0
     combined: float = field(default=0.0)
     edited: bool = False  # boundaries hand-tightened by the editor pass
+    crowd: int = 0        # distinct humans who clipped this live (ground truth)
 
 
 def _transcript_lines(words: list[Word],
@@ -673,8 +681,8 @@ def rerank_moments(moments: list[Moment], words: list[Word],
     # a clip window must contain actual speech — hallucinated timestamps and
     # music-only stretches have none, no matter how loud they measured
     starts = np.array([w.start for w in words])
-    moments = [m for m in moments
-               if np.searchsorted(starts, m.end) - np.searchsorted(starts, m.start) >= 8]
+    moments = [m for m in moments if m.crowd > 0 or
+               np.searchsorted(starts, m.end) - np.searchsorted(starts, m.start) >= 8]
     if not moments:
         return []
     for m in moments:
@@ -707,9 +715,12 @@ def rerank_moments(moments: list[Moment], words: list[Word],
         snippet = "\n".join(f"[{int(t)}] {text}" for t, text in lines)
         blocks.append(
             f"CANDIDATE {i} | scorer said {m.score:.0f}/10: {m.title}\n"
-            f"suggested {m.start:.0f}s -> {m.end:.0f}s | "
-            f"measured loudness {m.energy:.2f}\n"
-            f"transcript (90s lead-in / 45s tail included — judge whether the\n  setup is inside the suggested bounds):\n{snippet}")
+            + (f"[CROWD GROUND TRUTH: {m.crowd} separate viewers clipped this "
+               f"moment live]\n" if m.crowd else "")
+            + f"suggested {m.start:.0f}s -> {m.end:.0f}s | "
+            + f"measured loudness {m.energy:.2f}\n"
+            + "transcript (90s lead-in / 45s tail included — judge whether "
+            + f"the\n  setup is inside the suggested bounds):\n{snippet}")
     body = "\n\n".join(blocks)
 
     data = None
@@ -914,7 +925,7 @@ def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
         m.combined = m.score + 0.75 * m.energy  # comedy ranks, loudness tiebreaks
 
     # near-silent "moments" are usually game dialogue the LLM mistook for content
-    moments = [m for m in moments if m.energy >= 0.12]
+    moments = [m for m in moments if m.crowd > 0 or m.energy >= 0.12]
 
     # two passes: first demand time spread (a batch of three clips from the
     # same 10 minutes is one clip posted thrice), then fill remaining slots

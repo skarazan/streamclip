@@ -94,7 +94,51 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
     except Exception as e:
         print(f"Chat replay unavailable ({str(e)[:80]}) — continuing without")
 
+    # crowd ground truth: viewers' own Twitch clips of THIS vod. Tier A
+    # (rich signal) replaces LLM chunk-scoring entirely — humans already
+    # found the moments; the LLM only refines boundaries/titles in the
+    # editor pass. Tier B merges crowd anchors into the scored pool.
+    # Tier C (small channels, no clips) = pure signal-stack scoring.
+    crowd_moments: list = []
+    try:
+        from . import crowd as _crowd
+        clips_raw = _crowd.fetch_vod_clips(
+            vod_url, cache=vod_work / "twitch_clips.json")
+        clusters = _crowd.cluster_moments(clips_raw)
+        for cl in clusters[:15]:
+            s = max(0.0, cl.median_start - 5.0)
+            crowd_moments.append(detect.Moment(
+                start=s, end=cl.median_start + 32.0,
+                score=min(10.0, 5.0 + cl.strength / 5.0),
+                title=(cl.titles[0] if cl.titles else "crowd moment")[:80],
+                reason=f"{cl.clippers} viewers clipped this live "
+                       f"({cl.views} clip views)",
+                crowd=cl.clippers))
+        if crowd_moments:
+            print(f"Crowd ground truth: {len(clips_raw)} viewer clips -> "
+                  f"{len(clusters)} moments, using top {len(crowd_moments)}")
+    except Exception as e:
+        print(f"Crowd clips unavailable ({str(e)[:80]}) — signal-stack only")
+
+    tier_a = len(crowd_moments) >= 8
+
     llm = cfg["llm"]
+    if tier_a:
+        # humans judged WHAT; the editor pass judges HOW (bounds/title/hook)
+        report("scoring", "viewers already clipped the best moments — refining")
+        print(f"Tier A: crowd-first, skipping chunk scoring "
+              f"({len(crowd_moments)} crowd candidates)")
+        moments = crowd_moments
+        if rerank:
+            moments = detect.rerank_moments(
+                moments, words, profile, llm["model"],
+                base_url=llm.get("base_url"),
+                api_key_env=llm.get("api_key_env"),
+                streamer=cfg.get("streamer_name", "the streamer"),
+                fallback_models=llm.get("fallback_models"),
+                persona=cfg.get("persona", "generic"))
+        return words, profile, moments
+
     if words and detect.llm_available(
             llm["model"], llm.get("base_url"), llm.get("api_key_env"),
             llm.get("fallback_models")):
@@ -145,6 +189,8 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
     else:
         print("No API credentials for configured model -> loudness-only mode.")
         moments = detect.moments_from_energy(profile)
+    if crowd_moments:  # tier B: crowd anchors join the pool, crowd-flagged
+        moments = list(moments) + crowd_moments
     return words, profile, moments
 
 

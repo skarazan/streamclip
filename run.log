@@ -518,3 +518,51 @@ Caption pass: groq turbo over 3 segments...
 Done in 29.0 min. Shorts + titles in: out/2026-07-13_2817120673/
 Review each clip, then upload from the YouTube app/studio.
 === OPUS v3 contextual done Mon Jul 13 19:52:15 EDT 2026 ===
+Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
+  13624 words, ~4.0h of speech
+Chat replay: 484 density samples, 26442 messages (sampled)
+Scoring moments with gpt-5-mini...
+  ! chunk 2 on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  ! chunk 4 on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  ! chunk 3 on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  ! chunk 6 on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  ! chunk 1 on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  ! chunk 5 on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  (scored with fallback model meta-llama/llama-4-scout-17b-16e-instruct)
+  LLM scoring chunk 1/30 scored
+  (scored with fallback model meta-llama/llama-4-scout-17b-16e-instruct)
+  LLM scoring chunk 2/30 scored
+  (scored with fallback model meta-llama/llama-4-scout-17b-16e-instruct)
+  LLM scoring chunk 3/30 scored
+  (scored with fallback model meta-llama/llama-4-scout-17b-16e-instruct)
+  LLM scoring chunk 4/30 scored
+  LLM scoring chunk 5/30 scored
+  LLM scoring chunk 6/30 scored
+  LLM scoring chunk 7/30 scored
+  LLM scoring chunk 8/30 scored
+  LLM scoring chunk 9/30 scored
+  LLM scoring chunk 10/30 scored
+  LLM scoring chunk 11/30 scored
+  LLM scoring chunk 12/30 scored
+  LLM scoring chunk 13/30 scored
+  LLM scoring chunk 14/30 scored
+  LLM scoring chunk 15/30 scored
+  LLM scoring chunk 16/30 scored
+  LLM scoring chunk 17/30 scored
+  LLM scoring chunk 18/30 scored
+  LLM scoring chunk 19/30 scored
+  LLM scoring chunk 20/30 scored
+  LLM scoring chunk 21/30 scored
+  LLM scoring chunk 22/30 scored
+  LLM scoring chunk 23/30 scored
+  LLM scoring chunk 24/30 scored
+  LLM scoring chunk 25/30 scored
+  (scored with fallback model meta-llama/llama-4-scout-17b-16e-instruct)
+  LLM scoring chunk 26/30 scored
+  LLM scoring chunk 27/30 scored
+  LLM scoring chunk 28/30 scored
+  (scored with fallback model meta-llama/llama-4-scout-17b-16e-instruct)
+  LLM scoring chunk 29/30 scored
+  LLM scoring chunk 30/30 scored
+analyze done
+=== v4 rescore done Tue Jul 14 20:21:46 EDT 2026 ===

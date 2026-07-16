@@ -753,7 +753,9 @@ def rerank_moments(moments: list[Moment], words: list[Word],
             continue
         m = cand[int(c["id"]) - 1]
         s, e = float(c["start"]), float(c["end"])
-        if m.start - 25 <= s < e <= m.end + 15 and 14 <= e - s <= 45:
+        lo, hi = (m.start - 60, m.end + 30) if m.crowd else (m.start - 25,
+                                                              m.end + 15)
+        if lo <= s < e <= hi and 14 <= e - s <= 45:
             m.start, m.end = s, e
             m.edited = True
         m.score = float(c["post_score"])

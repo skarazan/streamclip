@@ -106,10 +106,11 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
             vod_url, cache=vod_work / "twitch_clips.json")
         clusters = _crowd.cluster_moments(clips_raw)
         for cl in clusters[:15]:
-            s = max(0.0, cl.median_start - 5.0)
-            # end = where the crowd's clips actually stop (the payoff is in
-            # there), capped for shorts; never shorter than 20s of content
-            e = min(max(cl.end, s + 20.0), s + 55.0)
+            # clip offsets skew LATE (people press the button after the
+            # moment) — anchor 40s BEFORE the crowd's median start and let
+            # the editor find the actual arc inside the wide canvas
+            s = max(0.0, cl.median_start - 40.0)
+            e = min(max(cl.end, cl.median_start + 20.0), s + 75.0)
             crowd_moments.append(detect.Moment(
                 start=s, end=e,
                 score=min(10.0, 5.0 + cl.strength / 5.0),
@@ -222,9 +223,13 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
 
     words, profile, moments = analyze_vod(cfg, vod_url, vod_work, report)
 
+    # over-select by 2: a moment where the streamer is OFF-CAM makes a
+    # visually dead short — after facecam matching we prefer cam-present
+    # picks and only ship off-cam ones if nothing better exists
+    want = cfg["clips"]["count"]
     clips = detect.select_clips(
         moments, profile,
-        cfg["clips"]["count"], cfg["clips"]["min_length"], cfg["clips"]["max_length"],
+        want + 2, cfg["clips"]["min_length"], cfg["clips"]["max_length"],
         words=words,
         min_gap_s=cfg["clips"].get("min_gap_minutes", 20) * 60,
     )
@@ -318,6 +323,21 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         for i, c in enumerate(cams, 1):
             print(f"[{i}/{len(segs)}] Facecam "
                   f"{'matched -> split layout' if c else 'none -> full frame'}")
+
+    # keep the best `want` clips, cam-present first (order within groups
+    # preserved = still ranked); drop the overshoot
+    if len(clips) > want:
+        order = ([i for i, c in enumerate(cams) if c]
+                 + [i for i, c in enumerate(cams) if not c])[:want]
+        order.sort()
+        dropped = [i for i in range(len(clips)) if i not in order]
+        for i in dropped:
+            print(f"  dropping candidate '{clips[i].title[:50]}' "
+                  f"({'off-cam' if not cams[i] else 'overshoot'})")
+            segs[i].unlink(missing_ok=True)
+        clips = [clips[i] for i in order]
+        segs = [segs[i] for i in order]
+        cams = [cams[i] for i in order]
 
     # 8. caption transcripts: the rough whole-VOD transcript picked the
     # moments; the words that get BURNED ON SCREEN come from a premium model

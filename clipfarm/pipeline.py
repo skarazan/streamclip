@@ -106,18 +106,17 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
             vod_url, cache=vod_work / "twitch_clips.json")
         clusters = _crowd.cluster_moments(clips_raw)
         for cl in clusters[:15]:
-            # clip offsets skew LATE (people press the button after the
-            # moment) — anchor 40s BEFORE the crowd's median start and let
-            # the editor find the actual arc inside the wide canvas
-            s = max(0.0, cl.median_start - 40.0)
-            e = min(max(cl.end, cl.median_start + 20.0), s + 75.0)
+            # the earliest clip in a cluster CONTAINS the moment: Twitch's
+            # clip button records the ~30s BEFORE the press. Anchor there.
+            s = max(0.0, cl.start - 10.0)
+            e = min(max(cl.end, s + 22.0), s + 90.0)
             crowd_moments.append(detect.Moment(
                 start=s, end=e,
                 score=min(10.0, 5.0 + cl.strength / 5.0),
                 title=(cl.titles[0] if cl.titles else "crowd moment")[:80],
                 reason=f"{cl.clippers} viewers clipped this live "
                        f"({cl.views} clip views)",
-                crowd=cl.clippers))
+                crowd=cl.clippers, crowd_peak=cl.median_start))
         if crowd_moments:
             print(f"Crowd ground truth: {len(clips_raw)} viewer clips -> "
                   f"{len(clusters)} moments, using top {len(crowd_moments)}")
@@ -140,7 +139,7 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                 api_key_env=llm.get("api_key_env"),
                 streamer=cfg.get("streamer_name", "the streamer"),
                 fallback_models=llm.get("fallback_models"),
-                persona=cfg.get("persona", "generic"))
+                persona=cfg.get("persona", "generic"), post_bar=6)
         return words, profile, moments
 
     if words and detect.llm_available(

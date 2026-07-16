@@ -259,6 +259,7 @@ class Moment:
     combined: float = field(default=0.0)
     edited: bool = False  # boundaries hand-tightened by the editor pass
     crowd: int = 0        # distinct humans who clipped this live (ground truth)
+    crowd_peak: float = 0.0  # cluster median start = where the payoff lives
 
 
 def _transcript_lines(words: list[Word],
@@ -753,9 +754,27 @@ def rerank_moments(moments: list[Moment], words: list[Word],
             continue
         m = cand[int(c["id"]) - 1]
         s, e = float(c["start"]), float(c["end"])
-        lo, hi = (m.start - 60, m.end + 30) if m.crowd else (m.start - 25,
+        lo, hi = (m.start - 90, m.end + 40) if m.crowd else (m.start - 25,
                                                               m.end + 15)
-        if lo <= s < e <= hi and 14 <= e - s <= 45:
+        # CROWD PEAK INVARIANT: the cluster's median start is where the
+        # crowd's fingers agreed the payoff happened (clip button captures
+        # the preceding ~30s). Nonverbal payoffs are invisible to the editor
+        # (speech-gated), so its bounds may trim around the peak but must
+        # NEVER exclude it: peak-in-final-third by construction.
+        if m.crowd and m.crowd_peak:
+            n_words = sum(1 for w in words if m.start <= w.start <= m.end)
+            if n_words < 15:  # stinger: crowd bounds verbatim, title only
+                m.start = max(m.start, m.crowd_peak - 24.0)
+                m.end = m.crowd_peak + 8.0
+            else:
+                if lo <= s < e <= hi and 14 <= e - s <= 45:
+                    m.start, m.end = s, e
+                m.start = min(m.start, m.crowd_peak - 6.0)
+                m.end = max(m.end, m.crowd_peak + 8.0)
+                if m.end - m.start > 45.0:  # keep the END (payoff side)
+                    m.start = m.end - 45.0
+                m.edited = True
+        elif lo <= s < e <= hi and 14 <= e - s <= 45:
             m.start, m.end = s, e
             m.edited = True
         m.score = float(c["post_score"])

@@ -566,3 +566,38 @@ Scoring moments with gpt-5-mini...
   LLM scoring chunk 30/30 scored
 analyze done
 === v4 rescore done Tue Jul 14 20:21:46 EDT 2026 ===
+pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
+Using VOD: https://www.twitch.tv/videos/2817120673
+Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
+  13624 words, ~4.0h of speech
+Chat replay: 484 density samples, 26442 messages (sampled)
+Crowd ground truth: 504 viewer clips -> 75 moments, using top 15
+Tier A: crowd-first, skipping chunk scoring (15 crowd candidates)
+  ! editor pass on gpt-5-mini failed (RuntimeError: rate-limited after 5 retries)
+  editor pass kept 5/15 candidates
+Selected 3 clips:
+  [  41.8m] score 9 energy 0.34  CASEOH *Panicked* So Hard
+  [  92.8m] score 8 energy 0.45  CASEOH *Loses It* Over Candyland
+  [ 240.2m] score 8 energy 0.53  CASEOH *Screams* at Game Outcome
+[1/3] Downloading segment 2506s-2535s...
+[2/3] Downloading segment 5568s-5584s...
+[3/3] Downloading segment 14412s-14449s...
+Facecam: cached VOD identity
+Facecam: 2/3 segments matched -> batch-fill for the rest
+[1/3] Facecam matched -> split layout
+[2/3] Facecam matched -> split layout
+[3/3] Facecam matched -> split layout
+Caption pass: groq turbo over 3 segments...
+[1/3] Rendering short...[2/3] Rendering short...
+[3/3] Rendering short...  jump-cutting 4 silence(s), -15.4s dead air
+
+
+  jump-cutting 2 silence(s), -7.3s dead air  jump-cutting 3 silence(s), -12.8s dead air
+
+  -> out/2026-07-15_2817120673/02_caseoh-loses-it-over-candyland.mp4
+  -> out/2026-07-15_2817120673/01_caseoh-panicked-so-hard.mp4
+  -> out/2026-07-15_2817120673/03_caseoh-screams-at-game-outcome.mp4
+
+Done in 24.1 min. Shorts + titles in: out/2026-07-15_2817120673/
+Review each clip, then upload from the YouTube app/studio.
+=== TIER-A clean run done Wed Jul 15 20:17:53 EDT 2026 ===

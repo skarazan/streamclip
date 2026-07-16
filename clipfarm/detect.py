@@ -215,13 +215,18 @@ snippet. Stay within 20s of the suggestion, 18-40s long, peak in the final
 third. Return a sharper title + hook when you can.
 hook: 3-8 words, sentence case, exactly ONE emotional keyword wrapped in
 *asterisks*, never spoils the punchline.
-Candidates tagged [CROWD GROUND TRUTH: N viewers clipped this] were marked
-clip-worthy by real humans watching live — that endorsement outranks your own
-taste. For those, do NOT judge WHETHER they're worth posting; judge only the
-boundaries, title and hook, and keep them unless the payoff is structurally
-impossible in captions+facecam format (physical fail off-camera, second
-person out of frame). A crowd moment with almost no dialogue is a STINGER —
-keep it tight (18-25s) and let the reaction carry it.
+Candidates tagged [CROWD GROUND TRUTH: N viewers clipped this] carry a
+strong human prior: do not overrule them on taste ("not that funny" is NOT
+a valid cut). But they are NOT infallible for OUR format — viewers often
+clip for visual gags a captions+facecam short cannot show. CUT a crowd
+candidate when the transcript shows its payoff won't survive our format:
+the humor is a game visual/NPC line with no real streamer reaction beyond
+one word, the payoff is off-camera, or a second person carries it. When you
+KEEP a crowd candidate, your job is boundaries/title/hook: make sure the
+FULL arc is inside the bounds — if the transcript shows the story resolving
+after the suggested end, EXTEND the end to the resolution (up to 45s total).
+A crowd moment with almost no dialogue but a real streamer reaction is a
+STINGER — keep it tight (18-25s) and let the reaction carry it.
 Be ruthless with everything else: returning ZERO non-crowd keeps is valid."""
 
 

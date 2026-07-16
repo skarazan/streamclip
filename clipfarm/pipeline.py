@@ -107,8 +107,11 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
         clusters = _crowd.cluster_moments(clips_raw)
         for cl in clusters[:15]:
             s = max(0.0, cl.median_start - 5.0)
+            # end = where the crowd's clips actually stop (the payoff is in
+            # there), capped for shorts; never shorter than 20s of content
+            e = min(max(cl.end, s + 20.0), s + 55.0)
             crowd_moments.append(detect.Moment(
-                start=s, end=cl.median_start + 32.0,
+                start=s, end=e,
                 score=min(10.0, 5.0 + cl.strength / 5.0),
                 title=(cl.titles[0] if cl.titles else "crowd moment")[:80],
                 reason=f"{cl.clippers} viewers clipped this live "
@@ -296,11 +299,20 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         # and the probes found nothing.
         matched = [c for c in cams if c]
         if matched and not all(cams):
-            fill = tuple(float(v) for v in
-                         np.median(np.array(matched), axis=0))
-            cams = [c or fill for c in cams]
-            print(f"Facecam: {len(matched)}/{len(segs)} segments matched -> "
-                  "batch-fill for the rest")
+            # batch-fill ONLY when the identity check merely failed to lock a
+            # box but the streamer IS on cam. If identity matching ran and
+            # found NO face of the streamer in a segment, he's off-cam there
+            # (fullscreen game scene, away) — a forced cam pane shows an empty
+            # room. Full-frame that clip instead.
+            if identity is not None:
+                print(f"Facecam: {len(matched)}/{len(segs)} matched; "
+                      "unmatched clips = streamer off-cam -> full frame")
+            else:
+                fill = tuple(float(v) for v in
+                             np.median(np.array(matched), axis=0))
+                cams = [c or fill for c in cams]
+                print(f"Facecam: {len(matched)}/{len(segs)} segments matched "
+                      "-> batch-fill for the rest")
         elif not matched and pos_box:
             cams = [pos_box] * len(segs)
         for i, c in enumerate(cams, 1):

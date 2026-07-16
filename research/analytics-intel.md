@@ -35,3 +35,8 @@ From YT Studio. Feeds selection-prompt few-shot blocks (positive/negative anchor
 - 0 subs attributed
 - Lessons queued: stakes-title for comps, opener = most zero-context-legible clip (not top-scored), await retention-curve screenshot for cliff location
 - RETENTION CURVE (Jul 11): 100%→~50% by 1:20, ~20% by 2:30, then FLAT ~10% tail to 14:14. Leak = first two clips + 0:00 title card (hook-window violation). Survivors watch everything. FIXES SHIPPED: hot open (no card before clip 1), VOD round-robin ordering after opener.
+
+## Tier-A first verdict (2026-07-15, VOD 2817120673, v6)
+- User: clips 1-2 "absolute cinema" (world serpent bit; mom-key jumpscare), clip 3 "meh but good"
+- 6 iterations to get delivery right — all failures were WINDOWING/format, never crowd selection
+- Meh clip = weakest of the 3 clusters used; upgrade path = post more from top-2-strength clusters

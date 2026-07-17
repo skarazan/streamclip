@@ -1,39 +1,36 @@
 pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
 Using VOD: https://www.twitch.tv/videos/2821519719
-Downloading audio track...
-  -> vod_audio.mp4 (405 MB, 7.4 GB disk left)
-Transcribing (Groq API, ~200x realtime; cached per VOD)...
-  groq chunk 1 (0-90min): total 13711 words
-  groq chunk 2 (90-180min): total 28101 words
-  groq chunk 3 (180-270min): total 39679 words
-  groq chunk 4 (270-335min): total 48846 words
-Analyzing audio loudness...
+Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
   48846 words, ~5.6h of speech
 Chat replay: 671 density samples, 36860 messages (sampled)
 Crowd ground truth: 581 viewer clips -> 97 moments, using top 15
 Tier A: crowd-first, skipping chunk scoring (15 crowd candidates)
   editor pass kept 3/15 candidates
 Selected 3 clips:
-  [  47.7m] score 8 energy 0.55  JYNXZI SCREAMS AFTER PAUSING AT THE WORST TIME
-  [ 237.3m] score 7 energy 0.16  JYNXZI EXPOSES DISCORD SERVER PAYING TO SNIPE HIM
-  [ 328.2m] score 8 energy 0.21  JYNXZI AMAZING CLUTCH IN CLASH ROYALE
-[1/3] Downloading segment 2861s-2882s...
+  [  46.7m] score 9 energy 0.32  JYNXZI PAUSES THE STREAM AT THE WORST TIME
+  [ 237.3m] score 7 energy 0.16  JYNXZI SPOTS A DISCORD SNIPING RING
+  [ 328.0m] score 8 energy 0.20  JYNXZI PERFECT CLASH ROYALE OUTCOME
+[1/3] Downloading segment 2802s-2838s...
 [2/3] Downloading segment 14237s-14272s...
-[3/3] Downloading segment 19691s-19727s...
-  cam probes: faces in 8/8 slices
-  streamer identity locked (7/8 probes)
+[3/3] Downloading segment 19679s-19716s...
+Facecam: cached VOD identity
 [1/3] Facecam matched -> split layout
 [2/3] Facecam matched -> split layout
 [3/3] Facecam matched -> split layout
 Caption pass: groq turbo over 3 segments...
+  arc check 'JYNXZI PAUSES THE STREAM AT THE WORST TIME': unverified (trigger 17% 'I did not mean to pause it right there' | button 100% 'And then call him senpai like What is th')
+  arc check 'JYNXZI SPOTS A DISCORD SNIPING RING': unverified (trigger 25% 'There is a server that pays people to st' | button 100% 'Supercell, I reported these fuckers to y')
+  arc check 'JYNXZI PERFECT CLASH ROYALE OUTCOME': VERIFIED (trigger 50% 'Evo Snow the marcher.' | button 62% 'That was nasty bro fuck that guy bro')
 [1/3] Rendering short...[2/3] Rendering short...
-[3/3] Rendering short...
 
-  jump-cutting 1 silence(s), -6.0s dead air
-  -> out/2026-07-17_2821519719/01_jynxzi-screams-after-pausing-at-the-wors.mp4
-  -> out/2026-07-17_2821519719/02_jynxzi-exposes-discord-server-paying-to-.mp4
-  -> out/2026-07-17_2821519719/03_jynxzi-amazing-clutch-in-clash-royale.mp4
+[3/3] Rendering short...  jump-cutting 1 silence(s), -6.0s dead air  jump-cutting 2 silence(s), -11.7s dead air
 
-Done in 7.9 min. Shorts + titles in: out/2026-07-17_2821519719/
+
+  jump-cutting 1 silence(s), -4.6s dead air
+  -> out/2026-07-17_2821519719/01_jynxzi-pauses-the-stream-at-the-worst-ti.mp4
+  -> out/2026-07-17_2821519719/03_jynxzi-perfect-clash-royale-outcome.mp4
+  -> out/2026-07-17_2821519719/02_jynxzi-spots-a-discord-sniping-ring.mp4
+
+Done in 1.7 min. Shorts + titles in: out/2026-07-17_2821519719/
 Review each clip, then upload from the YouTube app/studio.
-=== JYNXZI today done Fri Jul 17 00:27:59 EDT 2026 ===
+=== GATE2 done Fri Jul 17 00:38:56 EDT 2026 ===

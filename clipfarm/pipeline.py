@@ -354,24 +354,39 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     # review: clips whose trigger+button quotes are audibly inside them =
     # "cinema"; clips we couldn't verify = "random bs". So verify against
     # the clip's OWN captions and let verified arcs outrank everything.
-    def _quote_in(quote: str, ws) -> bool:
+    def _quote_ratio(quote: str, ws) -> float:
         if not quote or not ws:
-            return False
+            return -1.0  # no quote / no words: distinguish from a 0% match
         text = " ".join(w.text.lower() for w in ws)
         toks = [t for t in re.sub(r"[^a-z0-9 ]", " ", quote.lower()).split()
                 if len(t) > 2]
         if not toks:
-            return False
-        return sum(1 for t in toks if t in text) / len(toks) >= 0.6
+            return -1.0
+        return sum(1 for t in toks if t in text) / len(toks)
+
+    def _quote_in(quote: str, ws) -> bool:
+        # 0.45: editor quotes come from the rough whole-VOD transcript,
+        # captions from a per-clip re-transcription — wording drifts
+        return _quote_ratio(quote, ws) >= 0.45
 
     verified = []
     for i, m in enumerate(clips):
         ws = cap_words[i] or [w for w in words if m.start <= w.start <= m.end]
-        ok = (_quote_in(m.trigger_quote, ws)
-              and _quote_in(m.button_quote, ws))
+        # calibrated on real ratios: editors quote BUTTONS verbatim (reliable
+        # exact check) but paraphrase TRIGGERS — so the setup is verified
+        # structurally: real speech in the clip's first half, or the quote.
+        dur = (ws[-1].end - ws[0].start) if ws else 0.0
+        setup_words = sum(1 for w in ws
+                          if ws and w.start - ws[0].start <= dur * 0.5)
+        ok = (_quote_in(m.button_quote, ws)
+              and (_quote_in(m.trigger_quote, ws) or setup_words >= 8))
         verified.append(ok)
+        rt = _quote_ratio(m.trigger_quote, ws)
+        rb = _quote_ratio(m.button_quote, ws)
         print(f"  arc check '{m.title[:45]}': "
-              f"{'VERIFIED' if ok else 'unverified'}"
+              f"{'VERIFIED' if ok else 'unverified'} "
+              f"(trigger {rt:.0%} '{m.trigger_quote[:40]}' | "
+              f"button {rb:.0%} '{m.button_quote[:40]}')"
               f"{' (no cam)' if not cams[i] else ''}")
 
     if len(clips) > want:

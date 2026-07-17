@@ -214,10 +214,10 @@ the suggested bounds start AFTER the trigger, widen start to include it — a
 context-free scream is an automatic cut, no matter how loud.
 For every keep, `trigger_quote` and `button_quote` must be VERBATIM words
 from the transcript INSIDE your returned bounds (the cause and the payoff).
-These are machine-checked against the rendered clip's own captions — a clip
-whose quotes aren't inside it gets discarded, so quoting words outside your
-bounds wastes the slot. For nonverbal payoffs (pure scream) quote the last
-intelligible line before it.
+These are machine-checked downstream — but do NOT cut candidates just
+because quoting is hard; keep 5-6 candidates whenever the material allows
+(the bench matters: downstream checks pick the best). For nonverbal payoffs
+(pure scream) quote the last intelligible line before it.
 Also return tightened start/end as ABSOLUTE stream seconds — transcript lines
 carry [seconds] markers; anchor your cuts to them, never to offsets within the
 snippet. Stay within 20s of the suggestion, 18-40s long, peak in the final

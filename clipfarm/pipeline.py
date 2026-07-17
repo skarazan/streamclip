@@ -323,21 +323,6 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
             print(f"[{i}/{len(segs)}] Facecam "
                   f"{'matched -> split layout' if c else 'none -> full frame'}")
 
-    # keep the best `want` clips, cam-present first (order within groups
-    # preserved = still ranked); drop the overshoot
-    if len(clips) > want:
-        order = ([i for i, c in enumerate(cams) if c]
-                 + [i for i, c in enumerate(cams) if not c])[:want]
-        order.sort()
-        dropped = [i for i in range(len(clips)) if i not in order]
-        for i in dropped:
-            print(f"  dropping candidate '{clips[i].title[:50]}' "
-                  f"({'off-cam' if not cams[i] else 'overshoot'})")
-            segs[i].unlink(missing_ok=True)
-        clips = [clips[i] for i in order]
-        segs = [segs[i] for i in order]
-        cams = [cams[i] for i in order]
-
     # 8. caption transcripts: the rough whole-VOD transcript picked the
     # moments; the words that get BURNED ON SCREEN come from a premium model
     # over just these ~90 seconds (base.en heard "BANG BANG" as "BANK")
@@ -364,6 +349,44 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         print(f"Caption pass: {cap_model} over {len(segs)} segments...")
         cap_words = transcribe.transcribe_clips(
             items, cap_model, cfg["transcribe"]["compute_type"])
+
+    # 8.5 ARC-VERIFIED SHIPPING GATE. Verdict pattern across every user
+    # review: clips whose trigger+button quotes are audibly inside them =
+    # "cinema"; clips we couldn't verify = "random bs". So verify against
+    # the clip's OWN captions and let verified arcs outrank everything.
+    def _quote_in(quote: str, ws) -> bool:
+        if not quote or not ws:
+            return False
+        text = " ".join(w.text.lower() for w in ws)
+        toks = [t for t in re.sub(r"[^a-z0-9 ]", " ", quote.lower()).split()
+                if len(t) > 2]
+        if not toks:
+            return False
+        return sum(1 for t in toks if t in text) / len(toks) >= 0.6
+
+    verified = []
+    for i, m in enumerate(clips):
+        ws = cap_words[i] or [w for w in words if m.start <= w.start <= m.end]
+        ok = (_quote_in(m.trigger_quote, ws)
+              and _quote_in(m.button_quote, ws))
+        verified.append(ok)
+        print(f"  arc check '{m.title[:45]}': "
+              f"{'VERIFIED' if ok else 'unverified'}"
+              f"{' (no cam)' if not cams[i] else ''}")
+
+    if len(clips) > want:
+        ranked = sorted(range(len(clips)),
+                        key=lambda i: (not verified[i], not cams[i], i))
+        order = sorted(ranked[:want])
+        for i in (set(range(len(clips))) - set(order)):
+            print(f"  dropping '{clips[i].title[:45]}' "
+                  f"({'unverified arc' if not verified[i] else ''}"
+                  f"{'/off-cam' if not cams[i] else ''})")
+            segs[i].unlink(missing_ok=True)
+        clips = [clips[i] for i in order]
+        segs = [segs[i] for i in order]
+        cams = [cams[i] for i in order]
+        cap_words = [cap_words[i] for i in order]
 
     # 9. render — ffmpeg is subprocess-bound, so clips render in parallel
     report("rendering", f"rendering {len(clips)} clips")

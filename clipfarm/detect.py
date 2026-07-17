@@ -165,9 +165,12 @@ RERANK_SCHEMA = {
                     "title": {"type": "string"},
                     "hook": {"type": "string"},
                     "reason": {"type": "string"},
+                    "trigger_quote": {"type": "string"},
+                    "button_quote": {"type": "string"},
                 },
                 "required": ["id", "post_score", "start", "end",
-                             "title", "hook", "reason"],
+                             "title", "hook", "reason",
+                             "trigger_quote", "button_quote"],
                 "additionalProperties": False,
             },
         }
@@ -209,6 +212,12 @@ richer moment that opens slow. Judge each candidate's post_score 1-10
 SETUP CHECK: with the 90s lead-in you can see what caused the reaction. If
 the suggested bounds start AFTER the trigger, widen start to include it — a
 context-free scream is an automatic cut, no matter how loud.
+For every keep, `trigger_quote` and `button_quote` must be VERBATIM words
+from the transcript INSIDE your returned bounds (the cause and the payoff).
+These are machine-checked against the rendered clip's own captions — a clip
+whose quotes aren't inside it gets discarded, so quoting words outside your
+bounds wastes the slot. For nonverbal payoffs (pure scream) quote the last
+intelligible line before it.
 Also return tightened start/end as ABSOLUTE stream seconds — transcript lines
 carry [seconds] markers; anchor your cuts to them, never to offsets within the
 snippet. Stay within 20s of the suggestion, 18-40s long, peak in the final
@@ -260,6 +269,8 @@ class Moment:
     edited: bool = False  # boundaries hand-tightened by the editor pass
     crowd: int = 0        # distinct humans who clipped this live (ground truth)
     crowd_peak: float = 0.0  # cluster median start = where the payoff lives
+    trigger_quote: str = ""  # editor's quoted cause — must appear in the clip
+    button_quote: str = ""   # editor's quoted payoff — must appear in the clip
 
 
 def _transcript_lines(words: list[Word],
@@ -778,6 +789,8 @@ def rerank_moments(moments: list[Moment], words: list[Word],
             m.start, m.end = s, e
             m.edited = True
         m.score = float(c["post_score"])
+        m.trigger_quote = c.get("trigger_quote", "")
+        m.button_quote = c.get("button_quote", "")
         if c.get("title"):
             m.title = c["title"]
         if c.get("hook"):

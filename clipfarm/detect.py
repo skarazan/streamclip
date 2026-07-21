@@ -211,7 +211,11 @@ richer moment that opens slow. Judge each candidate's post_score 1-10
   one clip), keep only the strongest and score the rest below the bar
 SETUP CHECK: with the 90s lead-in you can see what caused the reaction. If
 the suggested bounds start AFTER the trigger, widen start to include it — a
-context-free scream is an automatic cut, no matter how loud.
+context-free scream is an automatic cut, no matter how loud. When the trigger
+is the streamer READING something (a chat message, a video title, an on-screen
+line), the clip MUST open on him reading/reacting to it — start on the read,
+never mid-reaction. The viewer has to see WHAT he saw before he reacts, or the
+clip makes no sense.
 For every keep, `trigger_quote` and `button_quote` must be VERBATIM words
 from the transcript INSIDE your returned bounds (the cause and the payoff).
 These are machine-checked downstream — but do NOT cut candidates just
@@ -860,20 +864,30 @@ def _settle_end(m: Moment, profile: np.ndarray, words: list[Word],
 
 
 def keep_intervals(words: list[Word], start: float, end: float,
-                   max_gap: float = 2.2, keep_air: float = 0.45
+                   max_gap: float = 2.2, keep_air: float = 0.45,
+                   profile: np.ndarray | None = None
                    ) -> list[tuple[float, float]]:
     """Jump-cut plan for one clip: silences longer than max_gap shrink to a
     beat (keep_air), so the length budget goes to content instead of dead
-    air. Comedic pauses (< max_gap) survive untouched. Returns absolute
-    (start, end) intervals to KEEP; a single interval means no cuts."""
+    air. Comedic pauses (< max_gap) survive untouched. A gap that is LOUD
+    (game audio, NPC noise, a scream between words) is NOT dead air — the
+    payoff can BE a non-speech sound, so those gaps are never cut. Returns
+    absolute (start, end) intervals to KEEP; one interval means no cuts."""
     ws = [w for w in words if w.end > start and w.start < end]
     if len(ws) < 2:
         return [(start, end)]
+
+    def _loud_gap(a_end: float, b_start: float) -> bool:
+        if profile is None or not len(profile):
+            return False
+        seg = profile[int(a_end):int(b_start) + 1]
+        return bool(len(seg) and float(seg.max()) >= 0.18)
+
     ivals: list[tuple[float, float]] = []
     cursor = start
     for a, b in zip(ws, ws[1:]):
         gap = b.start - a.end
-        if gap > max_gap:
+        if gap > max_gap and not _loud_gap(a.end, b.start):
             ivals.append((cursor, a.end + keep_air * 0.6))
             cursor = b.start - keep_air * 0.4
     ivals.append((cursor, end))

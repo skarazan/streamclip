@@ -38,6 +38,7 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
         if older:
             tr_cache = older[0]
     prof_cache = vod_work / "loudness.npy"
+    raw_cache = vod_work / "loudness_raw.npy"  # pre-gate: keeps game/NPC sound
 
     # Fully cached (transcript + loudness) -> no audio download, no Groq, no
     # ffmpeg. This is the common case: every VOD the worker already clipped is
@@ -45,6 +46,7 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
     if tr_cache.exists() and prof_cache.exists():
         words = [transcribe.Word(**w) for w in json.loads(tr_cache.read_text())]
         profile = np.load(prof_cache)
+        raw_profile = np.load(raw_cache) if raw_cache.exists() else None
         print(f"Fully cached ({tr_cache.name} + loudness.npy) — no download")
     else:
         if free_gb() < 1.0:
@@ -72,9 +74,10 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                     audio, t_model, cfg["transcribe"]["compute_type"],
                     cache_path=tr_cache)
             print("Analyzing audio loudness...")
-            profile = detect.speech_gated(
-                transcribe.loudness_profile(audio), words)
+            raw_profile = transcribe.loudness_profile(audio)
+            profile = detect.speech_gated(raw_profile, words)
             np.save(prof_cache, profile)  # so next comp needs no audio at all
+            np.save(raw_cache, raw_profile)  # non-speech sounds for jump-cuts
         finally:
             # free the big file immediately — transcript + loudness are cached
             for f in vod_work.glob("vod_audio.*"):
@@ -139,7 +142,7 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                 api_key_env=llm.get("api_key_env"),
                 streamer=cfg.get("streamer_name", "the streamer"),
                 fallback_models=llm.get("fallback_models"),
-                persona=cfg.get("persona", "generic"), post_bar=6)
+                persona=cfg.get("persona", "generic"), post_bar=5)
         return words, profile, moments
 
     if words and detect.llm_available(
@@ -221,14 +224,17 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     vod_work.mkdir(exist_ok=True)
 
     words, profile, moments = analyze_vod(cfg, vod_url, vod_work, report)
+    _raw_cache = vod_work / "loudness_raw.npy"
+    import numpy as _np
+    raw_profile = _np.load(_raw_cache) if _raw_cache.exists() else None
 
-    # over-select by 2: a moment where the streamer is OFF-CAM makes a
-    # visually dead short — after facecam matching we prefer cam-present
-    # picks and only ship off-cam ones if nothing better exists
+    # over-select by 4: a deep bench so the downstream gate (arc-verified,
+    # then cam-present) has real alternatives — an off-cam or unverified
+    # moment gets dropped rather than shipped for lack of a replacement
     want = cfg["clips"]["count"]
     clips = detect.select_clips(
         moments, profile,
-        want + 2, cfg["clips"]["min_length"], cfg["clips"]["max_length"],
+        want + 4, cfg["clips"]["min_length"], cfg["clips"]["max_length"],
         words=words,
         min_gap_s=cfg["clips"].get("min_gap_minutes", 20) * 60,
     )
@@ -413,8 +419,11 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         print(f"[{i}/{len(clips)}] Rendering short...")
         clip_words = cap_words[i - 1] or words
         ass_start, ass_end = m.start, m.end
-        # jump-cut dead air (>~2s) so the budget buys punchline, not silence
-        ivals = detect.keep_intervals(words, m.start, m.end)
+        # jump-cut dead air (>~2s) so the budget buys punchline, not silence —
+        # but never cut a "silent" gap that is actually loud (game/NPC sound
+        # can BE the joke); raw (pre-speech-gate) loudness guards that
+        ivals = detect.keep_intervals(words, m.start, m.end,
+                                      profile=raw_profile)
         if len(ivals) > 1:
             saved = (m.end - m.start) - sum(e - s for s, e in ivals)
             print(f"  jump-cutting {len(ivals) - 1} silence(s), "

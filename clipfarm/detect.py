@@ -131,9 +131,9 @@ seconds). Untagged lines were spoken at normal volume. Rules:
   read, the question, the mistake). A reaction whose trigger is off-screen
   is noise, not a joke — if you can't include the trigger, don't pick the
   moment. Viewers must understand WHY he's screaming
-- moments must be 18-40 seconds: enough room for trigger -> reaction ->
-  button. Aim 22-32. Trim dead air inside via late start, not by amputating
-  the setup. NEVER cut the ending short: the reaction must fully play out.
+- moments must be 18-32 seconds: enough for trigger -> reaction -> button,
+  but TIGHT — a Short that drags loses viewers. Aim 20-28. Trim dead air
+  inside via late start, not by amputating the setup. NEVER cut the ending short: the reaction must fully play out.
   End 2-3 seconds AFTER the reaction settles, not mid-reaction.
   If the moment involves a guess, answer, or reveal (word games, quizzes,
   "wait is it X?"), the clip MUST include the reveal and the reaction to it —
@@ -786,10 +786,10 @@ def rerank_moments(moments: list[Moment], words: list[Word],
                     m.start, m.end = s, e
                 m.start = min(m.start, m.crowd_peak - 6.0)
                 m.end = max(m.end, m.crowd_peak + 8.0)
-                if m.end - m.start > 45.0:  # keep the END (payoff side)
-                    m.start = m.end - 45.0
+                if m.end - m.start > 34.0:  # keep the END (payoff side)
+                    m.start = m.end - 34.0
                 m.edited = True
-        elif lo <= s < e <= hi and 14 <= e - s <= 45:
+        elif lo <= s < e <= hi and 14 <= e - s <= 34:
             m.start, m.end = s, e
             m.edited = True
         m.score = float(c["post_score"])
@@ -881,7 +881,7 @@ def keep_intervals(words: list[Word], start: float, end: float,
         if profile is None or not len(profile):
             return False
         seg = profile[int(a_end):int(b_start) + 1]
-        return bool(len(seg) and float(seg.max()) >= 0.18)
+        return bool(len(seg) and float(seg.max()) >= 0.50)
 
     ivals: list[tuple[float, float]] = []
     cursor = start

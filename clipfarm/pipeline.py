@@ -142,7 +142,7 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                 api_key_env=llm.get("api_key_env"),
                 streamer=cfg.get("streamer_name", "the streamer"),
                 fallback_models=llm.get("fallback_models"),
-                persona=cfg.get("persona", "generic"), post_bar=5)
+                persona=cfg.get("persona", "generic"), post_bar=6)
         return words, profile, moments
 
     if words and detect.llm_available(
@@ -234,7 +234,7 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     want = cfg["clips"]["count"]
     clips = detect.select_clips(
         moments, profile,
-        want + 4, cfg["clips"]["min_length"], cfg["clips"]["max_length"],
+        want + 3, cfg["clips"]["min_length"], cfg["clips"]["max_length"],
         words=words,
         min_gap_s=cfg["clips"].get("min_gap_minutes", 20) * 60,
     )
@@ -396,8 +396,10 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
               f"{' (no cam)' if not cams[i] else ''}")
 
     if len(clips) > want:
+        # cam-present is a HARD preference (a no-cam clip is a dead
+        # short); arc-verified breaks ties within cam/no-cam groups
         ranked = sorted(range(len(clips)),
-                        key=lambda i: (not verified[i], not cams[i], i))
+                        key=lambda i: (not cams[i], not verified[i], i))
         order = sorted(ranked[:want])
         for i in (set(range(len(clips))) - set(order)):
             print(f"  dropping '{clips[i].title[:45]}' "

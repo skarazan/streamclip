@@ -1,12 +1,8 @@
-=== Mon Jul 20 22:11:18 EDT 2026 CASEOH 2824292950 ===
 pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
 Using VOD: https://www.twitch.tv/videos/2824292950
 Downloading audio track...
-  -> vod_audio.mp4 (298 MB, 7.7 GB disk left)
+  -> vod_audio.mp4 (298 MB, 7.6 GB disk left)
 Transcribing (Groq API, ~200x realtime; cached per VOD)...
-  groq chunk 1 (0-90min): total 8013 words
-  groq chunk 2 (90-180min): total 12974 words
-  groq chunk 3 (180-246min): total 19145 words
 Analyzing audio loudness...
   19145 words, ~4.1h of speech
 Chat replay: 493 density samples, 26683 messages (sampled)
@@ -14,45 +10,39 @@ Crowd ground truth: 457 viewer clips -> 67 moments, using top 15
 Tier A: crowd-first, skipping chunk scoring (15 crowd candidates)
   editor pass kept 5/15 candidates
 Selected 5 clips:
-  [  31.6m] score 9 energy 0.30  CASEOH realized he is the stupidest person alive
-  [  35.9m] score 7 energy 0.20  CASEOH reacts to a 17 year old pilot
-  [  85.6m] score 7 energy 0.30  CASEOH exposes Granny's fresh manicure
-  [ 106.9m] score 8 energy 0.46  CASEOH panic screams in Granny 3 hard mode
-  [ 189.5m] score 8 energy 0.19  CASEOH realizes developers stole his voice
+  [  31.6m] score 7 energy 0.30  CASEOH is officially the stupidest Wordle player
+  [  85.8m] score 8 energy 0.31  CASEOH loses his mind over Granny's new look
+  [ 106.9m] score 9 energy 0.46  CASEOH panicked so hard he forgot how to count
+  [ 189.5m] score 7 energy 0.19  CASEOH hears himself in a horror game
+  [ 227.0m] score 8 energy 0.22  CASEOH got caught slipping by a dream
 [1/5] Downloading segment 1898s-1933s...
-[2/5] Downloading segment 2156s-2189s...
-[3/5] Downloading segment 5134s-5174s...
-[4/5] Downloading segment 6415s-6454s...
-[5/5] Downloading segment 11368s-11406s...
-  cam probes: faces in 5/8 slices
-  streamer identity locked (4/5 probes)
+[2/5] Downloading segment 5147s-5186s...
+[3/5] Downloading segment 6415s-6454s...
+[4/5] Downloading segment 11368s-11406s...
+[5/5] Downloading segment 13621s-13660s...
+Facecam: cached VOD identity
 Facecam: 3/5 matched; unmatched clips = streamer off-cam -> full frame
 [1/5] Facecam none -> full frame
 [2/5] Facecam matched -> split layout
-[3/5] Facecam matched -> split layout
-[4/5] Facecam none -> full frame
+[3/5] Facecam none -> full frame
+[4/5] Facecam matched -> split layout
 [5/5] Facecam matched -> split layout
 Caption pass: groq turbo over 5 segments...
-  arc check 'CASEOH realized he is the stupidest person al': unverified (trigger 21% 'I've been talking about being a witch fo' | button 33% 'I'm the goat baby') (no cam)
-  arc check 'CASEOH reacts to a 17 year old pilot': VERIFIED (trigger 100% 'I just got my private pilot's license at' | button 100% 'I'm grabbing a parachute and I'm doing a')
-  arc check 'CASEOH exposes Granny's fresh manicure': unverified (trigger 0% 'Did you see her nails?' | button 14% 'Granny done got too much motion, bruh.')
-  arc check 'CASEOH panic screams in Granny 3 hard mode': VERIFIED (trigger 0% 'I know what I'm doing.' | button 100% 'I TOLD YOU!') (no cam)
-  arc check 'CASEOH realizes developers stole his voice': VERIFIED (trigger 40% 'Is that literally me making that noise?' | button 50% 'That has to be me!')
-  dropping 'CASEOH realized he is the stupidest person al' (unverified arc/off-cam)
-  dropping 'CASEOH exposes Granny's fresh manicure' (unverified arc)
-[1/3] Rendering short...[2/3] Rendering short...
-
-  jump-cutting 2 silence(s), -7.2s dead air  jump-cutting 2 silence(s), -10.0s dead air
+  arc check 'CASEOH is officially the stupidest Wordle pla': unverified (trigger 29% 'I'm the stupidest person I've ever lived' | button 38% 'I've been talking about being a witch fo') (no cam)
+  arc check 'CASEOH loses his mind over Granny's new look': VERIFIED (trigger 46% 'Did you see her nails? When did she star' | button 100% 'Since when does Granny go to the nail sa')
+  arc check 'CASEOH panicked so hard he forgot how to coun': VERIFIED (trigger 40% 'I'll tell you exactly how it's going to ' | button 100% 'Where my ammo at, huh? Why did the shotg') (no cam)
+  arc check 'CASEOH hears himself in a horror game': unverified (trigger 38% 'Is that literally me making that noise? ' | button 25% 'Is it because every game from this dev I')
+  arc check 'CASEOH got caught slipping by a dream': VERIFIED (trigger 20% 'Why is there no objective currently? Oh ' | button 56% 'Who are you? You already know. Don't you')
+  dropping 'CASEOH is officially the stupidest Wordle pla' (unverified arc/off-cam)
+  dropping 'CASEOH hears himself in a horror game' (unverified arc)
+[1/3] Rendering short...
+[2/3] Rendering short...  jump-cutting 1 silence(s), -4.4s dead air
 [3/3] Rendering short...
 
-  jump-cutting 4 silence(s), -10.8s dead air
-  -> out/2026-07-20_2824292950/01_caseoh-reacts-to-a-17-year-old-pilot.mp4
-  -> out/2026-07-20_2824292950/03_caseoh-realizes-developers-stole-his-voi.mp4
-  -> out/2026-07-20_2824292950/02_caseoh-panic-screams-in-granny-3-hard-mo.mp4
+  -> out/2026-07-20_2824292950/01_caseoh-loses-his-mind-over-granny-s-new-.mp4
+  -> out/2026-07-20_2824292950/02_caseoh-panicked-so-hard-he-forgot-how-to.mp4
+  -> out/2026-07-20_2824292950/03_caseoh-got-caught-slipping-by-a-dream.mp4
 
-Done in 6.8 min. Shorts + titles in: out/2026-07-20_2824292950/
+Done in 3.3 min. Shorts + titles in: out/2026-07-20_2824292950/
 Review each clip, then upload from the YouTube app/studio.
-=== Mon Jul 20 22:18:04 EDT 2026 JYNXZI 2824608282 ===
-pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
-Using VOD: https://www.twitch.tv/videos/2824608282
-Downloading audio track...
+=== CASEOH fixes done Mon Jul 20 22:45:58 EDT 2026 ===

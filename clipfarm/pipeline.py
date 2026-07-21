@@ -404,11 +404,16 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
               f"{' (no cam)' if not cams[i] else ''}")
 
     if len(clips) > want:
-        # ranking: cam-present (a no-cam clip is a dead short) > fits-format
-        # (not too long) > arc-verified. The bench replaces poor-fit picks.
-        ranked = sorted(range(len(clips)),
-                        key=lambda i: (not cams[i], too_long[i],
-                                       not verified[i], i))
+        # VERIFIED FIRST: an unverified clip (no real trigger->payoff arc —
+        # opens on game/NPC dialogue, ends flat) is "random bs" and must
+        # never ship over a real moment, even a no-cam one. So drop unverified
+        # entirely when enough verified clips exist; only then rank the rest
+        # by cam-present > fits-format.
+        pool = [i for i in range(len(clips)) if verified[i]]
+        if len(pool) < want:
+            pool = list(range(len(clips)))  # not enough verified — allow rest
+        ranked = sorted(pool, key=lambda i: (not cams[i], too_long[i],
+                                             not verified[i], i))
         order = sorted(ranked[:want])
         for i in (set(range(len(clips))) - set(order)):
             reasons = [r for r, on in (

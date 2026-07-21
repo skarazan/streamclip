@@ -996,8 +996,15 @@ def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
             _settle_end(m, profile, words)
         # over budget: trim dead air at the head — NEVER the ending. The
         # reaction/reveal lives at the end; the start is expendable setup.
-        _trim_head(m, words, max_len)
-        _snap_start(m, words, max_len)
+        # BUT crowd moments already have intentional editor+pullback bounds
+        # (the start may deliberately hold the trigger/donation read) — head-
+        # trimming to max_len would amputate that setup, so skip it for them;
+        # the render's jump-cut compresses their length instead.
+        if not m.crowd:
+            _trim_head(m, words, max_len)
+        # crowd start is intentional -> only snap to a word edge, never let
+        # the length-budget branch shove it forward (1e9 disables that)
+        _snap_start(m, words, 1e9 if m.crowd else max_len)
         if m.end - m.start < min_len:
             m.start = max(0.0, m.end - min_len)  # more setup; ending stays put
             if m.end - m.start < min_len:

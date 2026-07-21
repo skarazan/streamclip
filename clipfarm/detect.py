@@ -1,6 +1,7 @@
 """Pick the funniest moments: Claude scores the transcript, loudness breaks ties."""
 
 import json
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -685,6 +686,112 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
     return moments
 
 
+SMARTCUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "keep": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"start": {"type": "number"},
+                               "end": {"type": "number"}},
+                "required": ["start", "end"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["keep"],
+    "additionalProperties": False,
+}
+
+SMARTCUT_SYS = """You tighten a Twitch clip into a punchy YouTube Short by
+CUTTING redundant talking — not just silence. You get the clip's transcript
+with [seconds] timestamps. Keep the essential arc and nothing else:
+- the TRIGGER (the thing that causes the reaction — a read message, a game
+  event, a question),
+- the strongest REACTION,
+- the BUTTON (the payoff / punchline at the end).
+CUT: repeated phrases, restarts, rambling, filler, dead tangents, him saying
+the same thing three times. A viewer should hear cause -> reaction -> payoff
+with no dead weight.
+
+Return KEEP spans as absolute [start, end] second-ranges taken from the
+[seconds] markers. Everything outside the spans is removed and the kept
+pieces play back-to-back. Rules:
+- cut on phrase boundaries (right after a word / before the next), never
+  mid-word — read the timestamps and land cuts in the gaps between words.
+- ALWAYS keep the trigger span and the button span in full. These are given:
+  TRIGGER = "{trigger}"  BUTTON = "{button}".
+- aim for a total kept length near {target} seconds — DON'T over-cut into a
+  choppy 10-second blur; keep the natural flow of the bit, just remove the
+  clearly redundant parts. Prefer fewer, longer spans over many tiny slivers.
+- if nothing is redundant, return a single span covering the whole clip."""
+
+
+def smart_cut(words: list[Word], start: float, end: float,
+              trigger_quote: str, button_quote: str, target: float,
+              model: str, base_url: str | None = None,
+              api_key_env: str | None = None,
+              fallback_models: list[str] | None = None,
+              log=print) -> list[tuple[float, float]] | None:
+    """LLM condense: cut REDUNDANT TALKING (not just silence) to keep a
+    talking-dense clip's trigger->reaction->payoff arc tight. Returns
+    absolute KEEP intervals, or None (caller falls back to silence cuts)
+    when the model is unavailable or its plan can't be trusted (drops the
+    button, reorders time, over-cuts). Only meant for clips the silence
+    jump-cut couldn't get under budget."""
+    clip_ws = [w for w in words if start <= w.start <= end]
+    if len(clip_ws) < 8:
+        return None
+    body = "\n".join(f"[{w.start:.1f}] {w.text}" for w in clip_ws)
+    sysmsg = SMARTCUT_SYS.format(trigger=trigger_quote[:80],
+                                 button=button_quote[:80], target=int(target))
+    data = None
+    for name in [model] + [m for m in (fallback_models or []) if m != model]:
+        try:
+            data = _fn_for(name)(
+                _client_provider(model, base_url, api_key_env)(name), name,
+                body, sysmsg, schema=SMARTCUT_SCHEMA)
+            break
+        except Exception as e:
+            log(f"  ! smart-cut on {name} failed ({type(e).__name__})")
+    if not data or not data.get("keep"):
+        return None
+
+    # validate: in-bounds, chronological, non-trivial, and the BUTTON survives
+    spans = []
+    for k in data["keep"]:
+        s, e = float(k["start"]), float(k["end"])
+        s, e = max(s, start), min(e, end)
+        if e - s >= 0.4:
+            spans.append((s, e))
+    spans.sort()
+    if not spans:
+        return None
+    # merge tiny gaps so ffmpeg isn't cutting on sub-0.3s slivers
+    merged = [spans[0]]
+    for s, e in spans[1:]:
+        if s - merged[-1][1] <= 0.4:
+            merged[-1] = (merged[-1][0], e)
+        else:
+            merged.append((s, e))
+    total = sum(e - s for s, e in merged)
+    if total < 6 or total > (end - start):
+        return None
+    # the button/payoff MUST be inside the kept spans, or we shipped a clip
+    # with no punchline — reject and fall back
+    kept_text = " ".join(w.text.lower() for w in clip_ws
+                         if any(s <= w.start <= e for s, e in merged))
+    btoks = [t for t in re.sub(r"[^a-z0-9 ]", " ", button_quote.lower()).split()
+             if len(t) > 3]
+    if btoks and sum(1 for t in set(btoks) if t in kept_text) < 0.5 * len(set(btoks)):
+        log("  smart-cut dropped the button -> fallback to silence cuts")
+        return None
+    log(f"  smart-cut: {end - start:.0f}s -> {total:.0f}s "
+        f"({len(merged)} kept span(s))")
+    return merged
+
+
 def rerank_moments(moments: list[Moment], words: list[Word],
                    profile: np.ndarray, model: str, log=print,
                    base_url: str | None = None,
@@ -998,17 +1105,18 @@ def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
             _settle_end(m, profile, words, max_extra=1.5, tail_pad=0.5)
         else:
             _settle_end(m, profile, words)
-        # length control is JUMP-CUT AWARE: don't trim the head if silence
-        # removal already brings the clip under budget. This keeps a pulled-
-        # back setup (a donation read separated from the reaction by a long
-        # dead gap) — the gap is cut at render, not the setup.
+        # length control is JUMP-CUT AWARE. Crowd moments carry an intentional
+        # trigger->payoff arc (possibly a pulled-back donation read) — NEVER
+        # head-trim them here; the render's silence-cut + smart-cut condense
+        # them to length while keeping the setup. Non-crowd clips trim as
+        # usual when even silence removal leaves them over budget.
         eff = m.end - m.start
         if raw_profile is not None:
             eff = sum(e - s for s, e in
                       keep_intervals(words, m.start, m.end, profile=raw_profile))
-        if eff > max_len:
+        if not m.crowd and eff > max_len:
             _trim_head(m, words, max_len)
-        _snap_start(m, words, max_len if eff > max_len else 1e9)
+        _snap_start(m, words, 1e9 if (m.crowd or eff <= max_len) else max_len)
         if m.end - m.start < min_len:
             m.start = max(0.0, m.end - min_len)  # more setup; ending stays put
             if m.end - m.start < min_len:

@@ -7,15 +7,15 @@ Crowd ground truth: 457 viewer clips -> 67 moments, using top 15
 Tier A: crowd-first, skipping chunk scoring (15 crowd candidates)
   editor pass kept 5/15 candidates
 Selected 5 clips:
-  [  31.9m] score 8 energy 0.32  CASEOH is the ultimate Wordle genius
-  [  36.0m] score 7 energy 0.20  CASEOH discovers a 17-year-old pilot
-  [  85.9m] score 8 energy 0.33  CASEOH loses his mind over Granny's nails
-  [ 107.1m] score 9 energy 0.44  CASEOH forgot Granny 3 hard mode rules
-  [ 189.6m] score 7 energy 0.16  CASEOH finds his voice in a horror game
+  [  31.9m] score 8 energy 0.32  CASEOH is officially the world's most *stuck* gamer
+  [  36.0m] score 7 energy 0.20  CASEOH refuses to trust a teenage pilot
+  [  85.9m] score 8 energy 0.33  CASEOH caught Granny slipping in the new update
+  [ 106.9m] score 9 energy 0.44  CASEOH panicked so hard he forgot how hard mode works
+  [ 189.6m] score 7 energy 0.16  CASEOH realized the developer stole his voice
 [1/5] Downloading segment 1915s-1933s...
 [2/5] Downloading segment 2162s-2189s...
 [3/5] Downloading segment 5153s-5179s...
-[4/5] Downloading segment 6423s-6454s...
+[4/5] Downloading segment 6416s-6454s...
 [5/5] Downloading segment 11375s-11406s...
 Facecam: cached VOD identity
 Facecam: 2/5 matched; unmatched clips = streamer off-cam -> full frame
@@ -25,22 +25,21 @@ Facecam: 2/5 matched; unmatched clips = streamer off-cam -> full frame
 [4/5] Facecam none -> full frame
 [5/5] Facecam matched -> split layout
 Caption pass: groq turbo over 5 segments...
-  arc check 'CASEOH is the ultimate Wordle genius': unverified (trigger 20% 'I'm the stupidest person I've ever lived' | button 0% 'I'm the goat baby') (no cam)
-  arc check 'CASEOH discovers a 17-year-old pilot': VERIFIED (trigger 100% 'You just got your private pilot license ' | button 100% 'big dog, I'm grabbing a parachute and I'')
-  arc check 'CASEOH loses his mind over Granny's nails': VERIFIED (trigger 20% 'Did you see her nails?' | button 100% 'Since when does Granny go to the nail sa') (no cam)
-  arc check 'CASEOH forgot Granny 3 hard mode rules': VERIFIED (trigger 29% 'They call me the Granny Goliath for a re' | button 100% 'Where my ammo at, huh?') (no cam)
-  arc check 'CASEOH finds his voice in a horror game': VERIFIED (trigger 100% 'Is that literally me making that noise?' | button 50% 'That has to be me!')
-  dropping 'CASEOH is the ultimate Wordle genius' (off-cam/unverified arc)
-  dropping 'CASEOH forgot Granny 3 hard mode rules' (off-cam)
-[1/3] Rendering short...
-[2/3] Rendering short...
-  jump-cutting 1 silence(s), -2.4s dead air
-[3/3] Rendering short...
-  jump-cutting 2 silence(s), -4.7s dead air
-  -> out/2026-07-20_2824292950/01_caseoh-discovers-a-17-year-old-pilot.mp4
-  -> out/2026-07-20_2824292950/02_caseoh-loses-his-mind-over-granny-s-nail.mp4
-  -> out/2026-07-20_2824292950/03_caseoh-finds-his-voice-in-a-horror-game.mp4
+  arc check 'CASEOH is officially the world's most *stuck*': unverified (trigger 14% 'I'm the stupidest person I've ever lived' | button 0% 'Lord have mercy I can't believe it was s') (no cam)
+  arc check 'CASEOH refuses to trust a teenage pilot': unverified (trigger 78% 'Hey, Casey, I just got my private pilot'' | button 25% 'My pilot is bare minimum going to be 50.')
+  arc check 'CASEOH caught Granny slipping in the new upda': VERIFIED (trigger 23% 'Did you see her nails? When did she star' | button 100% 'WHO IS GRANNY FEELING LIKE?!') (no cam)
+  arc check 'CASEOH panicked so hard he forgot how hard mo': VERIFIED (trigger 8% 'We are waiting for Grandpa to come in he' | button 86% 'I TOLD YOU! Hey, Granny! How you doin'?') (no cam)
+  arc check 'CASEOH realized the developer stole his voice': VERIFIED (trigger 100% 'Is that literally me making that noise? ' | button 50% 'That has to be me!')
+  dropping 'CASEOH is officially the world's most *stuck*' (off-cam/unverified arc)
+  dropping 'CASEOH panicked so hard he forgot how hard mo' (off-cam)
+[1/3] Rendering short...[2/3] Rendering short...
 
-Done in 2.5 min. Shorts + titles in: out/2026-07-20_2824292950/
+[3/3] Rendering short...  jump-cutting 2 silence(s), -12.9s dead air
+
+  -> out/2026-07-20_2824292950/02_caseoh-caught-granny-slipping-in-the-new.mp4
+  -> out/2026-07-20_2824292950/01_caseoh-refuses-to-trust-a-teenage-pilot.mp4
+  -> out/2026-07-20_2824292950/03_caseoh-realized-the-developer-stole-his-.mp4
+
+Done in 2.1 min. Shorts + titles in: out/2026-07-20_2824292950/
 Review each clip, then upload from the YouTube app/studio.
-=== CASEOH v7 done Mon Jul 20 23:29:54 EDT 2026 ===
+=== CASEOH v8 done Mon Jul 20 23:42:11 EDT 2026 ===

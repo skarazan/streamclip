@@ -388,12 +388,13 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         ok = (_quote_in(m.button_quote, ws)
               and (_quote_in(m.trigger_quote, ws) or setup_words >= 8))
         verified.append(ok)
-        # format fit: a moment whose setup+payoff, even after silence jump-
-        # cuts, still runs >38s can't be a tight Short without talking-level
-        # editing we don't do — poor fit, let the bench replace it
+        # format fit: smart-cut can now condense talking-dense clips, so only
+        # a moment whose silence-cut length is STILL huge (>52s — beyond what
+        # tightening the talking can rescue) is a poor fit; let the bench
+        # replace those. Mid-range clips get smart-cut at render.
         ivs = detect.keep_intervals(words, m.start, m.end, profile=raw_profile)
         eff = sum(e - s for s, e in ivs)
-        too_long.append(eff > 38.0)
+        too_long.append(eff > 52.0)
         rt = _quote_ratio(m.trigger_quote, ws)
         rb = _quote_ratio(m.button_quote, ws)
         print(f"  arc check '{m.title[:45]}': "
@@ -431,11 +432,30 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         print(f"[{i}/{len(clips)}] Rendering short...")
         clip_words = cap_words[i - 1] or words
         ass_start, ass_end = m.start, m.end
-        # jump-cut dead air (>~2s) so the budget buys punchline, not silence —
-        # but never cut a "silent" gap that is actually loud (game/NPC sound
-        # can BE the joke); raw (pre-speech-gate) loudness guards that
+        # LAYERED CUTTING. 1) silence jump-cut removes dead air but keeps
+        # short gaps (NPC sounds/beats live there), guarded by raw loudness.
         ivals = detect.keep_intervals(words, m.start, m.end,
                                       profile=raw_profile)
+        eff = sum(e - s for s, e in ivals)
+        # 2) SMART-CUT: if a clip is STILL too long after removing silence,
+        # it's talking-dense (a donation/story bit with redundant repetition)
+        # — an LLM condenses the talking to the trigger->reaction->payoff arc.
+        # Sound-payoff clips never reach here (their silence-cut fits), so we
+        # never risk an LLM (text-only) cutting a gap that holds a sound.
+        target = cfg["clips"].get("smart_cut_target", 30)
+        if cfg["clips"].get("smart_cut", True) and eff > target + 3:
+            llm = cfg["llm"]
+            sc = detect.smart_cut(
+                words, m.start, m.end, m.trigger_quote, m.button_quote,
+                target, llm["model"], base_url=llm.get("base_url"),
+                api_key_env=llm.get("api_key_env"),
+                fallback_models=llm.get("fallback_models"))
+            if sc:
+                ivals = sc
+        # fallback: if a crowd clip is still long (smart-cut off/failed), drop
+        # leading kept-spans until under budget — keeps the payoff (the end).
+        while (sum(e - s for s, e in ivals) > target + 8 and len(ivals) > 1):
+            ivals = ivals[1:]
         if len(ivals) > 1:
             saved = (m.end - m.start) - sum(e - s for s, e in ivals)
             print(f"  jump-cutting {len(ivals) - 1} silence(s), "

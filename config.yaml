@@ -12,6 +12,8 @@ clips:
   count: 3              # shorts to produce per run
   min_length: 16        # seconds
   max_length: 32        # sub-30 ideal; 40 bloated clips to 34-39s
+  smart_cut: true         # LLM condense redundant talking when a clip stays long after silence-cut
+  smart_cut_target: 28    # aim length for smart-cut (seconds)
   min_gap_minutes: 20   # spread the batch across the stream, not one section
   quality: "best[height<=1080]"
 

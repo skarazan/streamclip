@@ -1,45 +1,16 @@
 pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
 Using VOD: https://www.twitch.tv/videos/2825075436
-Downloading audio track...
-  -> vod_audio.mp4 (312 MB, 3.5 GB disk left)
-Transcribing (Groq API, ~200x realtime; cached per VOD)...
-  groq chunk 1 (0-90min): total 6982 words
-  groq chunk 2 (90-180min): total 13305 words
-  groq chunk 3 (180-257min): total 20164 words
-Analyzing audio loudness...
+Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
   20164 words, ~4.3h of speech
 Chat replay: 515 density samples, 27728 messages (sampled)
 Crowd ground truth: 472 viewer clips -> 65 moments, using top 15
 Tier A: crowd-first, skipping chunk scoring (15 crowd candidates)
-  editor pass kept 3/15 candidates
-Selected 3 clips:
-  [  96.4m] score 9 energy 0.54  CASEOH Panics Over This Scary Maid Outfit
-  [ 125.6m] score 8 energy 0.41  CASEOH Gets Instantly Punished For Hacking
-  [ 231.3m] score 8 energy 0.39  CASEOH Cheered At The Absolute Wrong Time
-[1/3] Downloading segment 5784s-5818s...
-[2/3] Downloading segment 7536s-7595s...
-[3/3] Downloading segment 13879s-13918s...
-  cam probes: faces in 5/8 slices
-  streamer identity locked (5/5 probes)
-Facecam: 1/3 matched; unmatched clips = streamer off-cam -> full frame
-[1/3] Facecam none -> full frame
-[2/3] Facecam none -> full frame
-[3/3] Facecam matched -> split layout
-Caption pass: groq turbo over 3 segments...
-  arc check 'CASEOH Panics Over This Scary Maid Outfit': unverified (trigger 75% 'Lord [SCREAM] have mercy.' | button 17% 'Why does he fall over the screen?') (no cam)
-  arc check 'CASEOH Gets Instantly Punished For Hacking': VERIFIED (trigger 80% 'Turned [loud] into a Bitcoin miner.' | button 67% 'That's what I do, buddy.') (no cam)
-  arc check 'CASEOH Cheered At The Absolute Wrong Time': unverified (trigger 0% 'Oh, my God!' | button 0% 'Wrong time to cheer?')
-[1/3] Rendering short...[2/3] Rendering short...
-
-[3/3] Rendering short...  jump-cutting 3 silence(s), -34.4s dead air
-
-  -> out/2026-07-21_2825075436/02_caseoh-gets-instantly-punished-for-hacki.mp4
-  smart-cut dropped the button -> fallback to silence cuts
-  jump-cutting 1 silence(s), -5.5s dead air
-  smart-cut dropped the button -> fallback to silence cuts
-  -> out/2026-07-21_2825075436/01_caseoh-panics-over-this-scary-maid-outfi.mp4
-  -> out/2026-07-21_2825075436/03_caseoh-cheered-at-the-absolute-wrong-tim.mp4
-
-Done in 6.8 min. Shorts + titles in: out/2026-07-21_2825075436/
-Review each clip, then upload from the YouTube app/studio.
-=== NEWVOD done Tue Jul 21 19:48:37 EDT 2026 ===
+  editor pass kept 4/15 candidates
+Selected 4 clips:
+  [  96.4m] score 9 energy 0.54  CASEOH Panicked So Hard When This Appeared
+  [ 117.4m] score 7 energy 0.13  CASEOH Sounded Like A Chipmunk While Lagging
+  [ 125.6m] score 8 energy 0.41  CASEOH Screams After Hacking An NPC PC
+  [ 231.1m] score 8 energy 0.34  CASEOH Cheered At The Worst Possible Moment
+[1/4] Downloading segment 5784s-5818s...
+[2/4] Downloading segment 7046s-7080s...
+[3/4] Downloading segment 7536s-7595s...

@@ -19,6 +19,37 @@ def _slug(text: str, n: int = 40) -> str:
 PIPELINE_VERSION = "v10.1 (groq transcription, cpu-only, context-biased captions)"
 
 
+def _ai_moments(cfg, words, profile, chat, llm, report, vod_work):
+    """Pure AI-chosen moments: whole-VOD LLM scoring + editor rerank, the
+    tier-C path, ignoring the crowd. Used by the A/B test to sit AI picks
+    next to crowd picks in one batch. Reuses the per-persona score cache."""
+    import json as _json
+    mom_cache = vod_work / f"moments.{cfg.get('persona', 'generic')}.json"
+    if mom_cache.exists():
+        scored = [detect.Moment(**d) for d in
+                  _json.loads(mom_cache.read_text())]
+    else:
+        scored = detect.score_with_llm(
+            words, llm["model"], llm["chunk_minutes"],
+            base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
+            streamer=cfg.get("streamer_name", "the streamer"),
+            fallback_models=llm.get("fallback_models"), profile=profile,
+            persona=cfg.get("persona", "generic"), chat=chat)
+        if scored:
+            mom_cache.write_text(_json.dumps(
+                [{"start": m.start, "end": m.end, "score": m.score,
+                  "title": m.title, "hook": m.hook, "reason": m.reason}
+                 for m in scored]))
+    if not scored:
+        return []
+    return detect.rerank_moments(
+        scored, words, profile, llm["model"],
+        base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
+        streamer=cfg.get("streamer_name", "the streamer"),
+        fallback_models=llm.get("fallback_models"),
+        persona=cfg.get("persona", "generic"))
+
+
 def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                 rerank=True):
     """VOD -> (words, speech-gated loudness profile, scored moments).
@@ -119,7 +150,8 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                 title=(cl.titles[0] if cl.titles else "crowd moment")[:80],
                 reason=f"{cl.clippers} viewers clipped this live "
                        f"({cl.views} clip views)",
-                crowd=cl.clippers, crowd_peak=cl.median_start))
+                crowd=cl.clippers, crowd_peak=cl.median_start,
+                source="crowd"))
         if crowd_moments:
             print(f"Crowd ground truth: {len(clips_raw)} viewer clips -> "
                   f"{len(clusters)} moments, using top {len(crowd_moments)}")
@@ -127,6 +159,10 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
         print(f"Crowd clips unavailable ({str(e)[:80]}) — signal-stack only")
 
     tier_a = len(crowd_moments) >= 8
+    # A/B test mode: also produce N purely AI-CHOSEN moments (whole-VOD LLM
+    # scoring, ignoring the crowd) alongside the crowd ones, so crowd-vs-AI
+    # selection can be compared in the same batch.
+    ai_count = int(cfg.get("clips", {}).get("ai_count", 0))
 
     llm = cfg["llm"]
     if tier_a:
@@ -143,6 +179,15 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                 streamer=cfg.get("streamer_name", "the streamer"),
                 fallback_models=llm.get("fallback_models"),
                 persona=cfg.get("persona", "generic"), post_bar=6)
+        for m in moments:
+            m.source = "crowd"
+        if ai_count > 0 and words:
+            print(f"A/B: also scoring the VOD for {ai_count} AI-chosen clips...")
+            ai = _ai_moments(cfg, words, profile, chat, llm, report, vod_work)
+            # AI picks that don't overlap a crowd pick, best first
+            for m in ai:
+                m.source = "ai"
+            moments = moments + ai
         return words, profile, moments
 
     if words and detect.llm_available(
@@ -232,13 +277,25 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     # then cam-present) has real alternatives — an off-cam or unverified
     # moment gets dropped rather than shipped for lack of a replacement
     want = cfg["clips"]["count"]
-    clips = detect.select_clips(
-        moments, profile,
-        want + 3, cfg["clips"]["min_length"], cfg["clips"]["max_length"],
-        words=words,
-        min_gap_s=cfg["clips"].get("min_gap_minutes", 20) * 60,
-        raw_profile=raw_profile,
-    )
+    ai_count = int(cfg["clips"].get("ai_count", 0))
+    crowd_want = want - ai_count
+
+    def _sel(ms, n):
+        return detect.select_clips(
+            ms, profile, n, cfg["clips"]["min_length"],
+            cfg["clips"]["max_length"], words=words,
+            min_gap_s=cfg["clips"].get("min_gap_minutes", 20) * 60,
+            raw_profile=raw_profile)
+
+    if ai_count > 0:
+        # A/B: pick each source's candidates separately so neither crowds out
+        # the other; label them for side-by-side comparison
+        crowd_ms = [m for m in moments if m.source != "ai"]
+        ai_ms = [m for m in moments if m.source == "ai"]
+        clips = _sel(crowd_ms, crowd_want + 2) + _sel(ai_ms, ai_count + 2)
+        print(f"A/B bench: {len(crowd_ms)} crowd + {len(ai_ms)} AI moments")
+    else:
+        clips = _sel(moments, want + 3)
     if not clips:
         raise SystemExit("No clip candidates found.")
     print(f"Selected {len(clips)} clips:")
@@ -404,17 +461,25 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
               f"{' (no cam)' if not cams[i] else ''}")
 
     if len(clips) > want:
-        # VERIFIED FIRST: an unverified clip (no real trigger->payoff arc —
-        # opens on game/NPC dialogue, ends flat) is "random bs" and must
-        # never ship over a real moment, even a no-cam one. So drop unverified
-        # entirely when enough verified clips exist; only then rank the rest
-        # by cam-present > fits-format.
-        pool = [i for i in range(len(clips)) if verified[i]]
-        if len(pool) < want:
-            pool = list(range(len(clips)))  # not enough verified — allow rest
-        ranked = sorted(pool, key=lambda i: (not cams[i], too_long[i],
-                                             not verified[i], i))
-        order = sorted(ranked[:want])
+        # VERIFIED FIRST: an unverified clip (no real trigger->payoff arc)
+        # is "random bs" and must never ship over a real moment; rank the
+        # rest by cam-present > fits-format.
+        def _rank(idxs):
+            verd = [i for i in idxs if verified[i]]
+            base = verd if len(verd) >= 1 else idxs
+            return sorted(base, key=lambda i: (not cams[i], too_long[i],
+                                               not verified[i], i))
+        if ai_count > 0:
+            # A/B split: keep the best crowd_want crowd picks AND the best
+            # ai_count AI picks, so the batch always has both to compare
+            ci = [i for i in range(len(clips)) if clips[i].source != "ai"]
+            ai = [i for i in range(len(clips)) if clips[i].source == "ai"]
+            order = sorted(_rank(ci)[:crowd_want] + _rank(ai)[:ai_count])
+        else:
+            pool = [i for i in range(len(clips)) if verified[i]]
+            if len(pool) < want:
+                pool = list(range(len(clips)))
+            order = sorted(_rank(list(range(len(clips))))[:want])
         for i in (set(range(len(clips))) - set(order)):
             reasons = [r for r, on in (
                 ("off-cam", not cams[i]), ("too long", too_long[i]),
@@ -433,7 +498,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
 
     def _render_one(i_m_seg_cam):
         i, m, seg, cam = i_m_seg_cam
-        name = f"{i:02d}_{_slug(m.title)}"
+        tag = f"{m.source.upper()}_" if m.source else ""
+        name = f"{i:02d}_{tag}{_slug(m.title)}"
         print(f"[{i}/{len(clips)}] Rendering short...")
         clip_words = cap_words[i - 1] or words
         ass_start, ass_end = m.start, m.end
@@ -480,8 +546,11 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
                                     brand=cfg["output"].get("brand", ""))
         meta = out_dir / f"{name}.txt"
         desc = cfg["output"]["description_template"].format(title=m.title)
+        picked = ("viewer clips (crowd)" if m.source == "crowd"
+                  else "AI scoring" if m.source == "ai" else "auto")
         meta.write_text(
             f"TITLE: {m.title}\n\nDESCRIPTION:\n{desc}\n"
+            f"PICKED BY: {picked}\n"
             f"WHY: {m.reason}\nSOURCE: {vod_url} @ {m.start:.0f}s\n")
         print(f"  -> {final.relative_to(PROJECT_ROOT)}")
         seg.unlink(missing_ok=True)  # keep disk usage low

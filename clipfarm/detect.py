@@ -274,6 +274,7 @@ class Moment:
     edited: bool = False  # boundaries hand-tightened by the editor pass
     crowd: int = 0        # distinct humans who clipped this live (ground truth)
     crowd_peak: float = 0.0  # cluster median start = where the payoff lives
+    source: str = ""      # provenance: "crowd" (viewer clips) or "ai" (LLM)
     trigger_quote: str = ""  # editor's quoted cause — must appear in the clip
     button_quote: str = ""   # editor's quoted payoff — must appear in the clip
     protect_start: float = -1.0  # trigger start _trim_head must not cross

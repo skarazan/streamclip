@@ -13,6 +13,9 @@ def main() -> None:
     p.add_argument("--vod", help="specific VOD URL instead of latest")
     p.add_argument("--clips", type=int, metavar="N",
                    help="number of shorts to produce (overrides config)")
+    p.add_argument("--ai-clips", type=int, metavar="M", default=None,
+                   help="A/B test: make M of the clips purely AI-chosen "
+                        "(whole-VOD LLM scoring), the rest crowd-chosen")
     p.add_argument("--config", help="path to config.yaml")
     args = p.parse_args()
 
@@ -22,6 +25,8 @@ def main() -> None:
     cfg = load_config(args.config)
     if args.clips:
         cfg["clips"]["count"] = max(1, args.clips)
+    if args.ai_clips is not None:
+        cfg["clips"]["ai_count"] = max(0, args.ai_clips)
     run(cfg, vod_url=args.vod)
 
 

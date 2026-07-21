@@ -798,27 +798,6 @@ def rerank_moments(moments: list[Moment], words: list[Word],
         m.score = float(c["post_score"])
         m.trigger_quote = c.get("trigger_quote", "")
         m.button_quote = c.get("button_quote", "")
-        # TRIGGER PULLBACK: if the trigger phrase also occurs BEFORE the
-        # chosen start (the streamer is echoing a donation/message read
-        # earlier, then reacting), open on the ORIGINAL read so the viewer
-        # sees the cause — not his repeat of it. Fixes "starts mid-reaction".
-        import re as _re
-        tqt = [t for t in _re.sub(r"[^a-z0-9 ]", " ",
-                                  m.trigger_quote.lower()).split() if len(t) > 3]
-        if tqt:
-            need = 0.6 * len(set(tqt))
-            for w in words:
-                if w.start >= m.start - 3:
-                    break
-                if w.start < m.start - 45:
-                    continue
-                near = " ".join(x.text.lower() for x in words
-                                if w.start <= x.start <= w.start + 6)
-                if sum(1 for t in set(tqt) if t in near) >= need:
-                    m.start = max(0.0, w.start - 1.0)  # open on the read
-                    m.protect_start = m.start  # _trim_head must not cross it
-                    m.edited = True
-                    break
         if c.get("title"):
             m.title = c["title"]
         if c.get("hook"):
@@ -1001,12 +980,9 @@ def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
             _settle_end(m, profile, words, max_extra=1.5, tail_pad=0.5)
         else:
             _settle_end(m, profile, words)
-        # trim length from the HEAD (never the ending) — but never past a
-        # protected trigger start (a pulled-back donation/message read). A
-        # crowd clip with no protected trigger is capped normally.
-        _prot = m.protect_start if m.protect_start >= 0 else None
-        _trim_head(m, words, max_len, protect=_prot)
-        _snap_start(m, words, 1e9 if _prot is not None else max_len)
+        # over budget: trim dead air at the head — NEVER the ending.
+        _trim_head(m, words, max_len)
+        _snap_start(m, words, max_len)
         if m.end - m.start < min_len:
             m.start = max(0.0, m.end - min_len)  # more setup; ending stays put
             if m.end - m.start < min_len:

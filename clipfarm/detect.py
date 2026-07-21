@@ -878,10 +878,18 @@ def keep_intervals(words: list[Word], start: float, end: float,
         return [(start, end)]
 
     def _loud_gap(a_end: float, b_start: float) -> bool:
+        # a payoff SOUND (jumpscare, NPC voice, sound effect) is a transient:
+        # a spike well above the gap's own quiet floor. Steady ambient/music
+        # (peak ~= floor) and true silence stay cuttable — so this preserves
+        # sound events without bringing back the draggy over-preservation.
         if profile is None or not len(profile):
             return False
         seg = profile[int(a_end):int(b_start) + 1]
-        return bool(len(seg) and float(seg.max()) >= 0.50)
+        if not len(seg):
+            return False
+        peak = float(seg.max())
+        floor = float(np.percentile(seg, 25))
+        return peak >= 0.25 and (peak - floor) >= 0.12
 
     ivals: list[tuple[float, float]] = []
     cursor = start

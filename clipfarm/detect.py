@@ -795,6 +795,26 @@ def rerank_moments(moments: list[Moment], words: list[Word],
         m.score = float(c["post_score"])
         m.trigger_quote = c.get("trigger_quote", "")
         m.button_quote = c.get("button_quote", "")
+        # TRIGGER PULLBACK: if the trigger phrase also occurs BEFORE the
+        # chosen start (the streamer is echoing a donation/message read
+        # earlier, then reacting), open on the ORIGINAL read so the viewer
+        # sees the cause — not his repeat of it. Fixes "starts mid-reaction".
+        import re as _re
+        tqt = [t for t in _re.sub(r"[^a-z0-9 ]", " ",
+                                  m.trigger_quote.lower()).split() if len(t) > 3]
+        if tqt:
+            need = 0.6 * len(set(tqt))
+            for w in words:
+                if w.start >= m.start - 3:
+                    break
+                if w.start < m.start - 45:
+                    continue
+                near = " ".join(x.text.lower() for x in words
+                                if w.start <= x.start <= w.start + 6)
+                if sum(1 for t in set(tqt) if t in near) >= need:
+                    m.start = max(0.0, w.start - 1.0)  # open on the read
+                    m.edited = True
+                    break
         if c.get("title"):
             m.title = c["title"]
         if c.get("hook"):
@@ -889,7 +909,7 @@ def keep_intervals(words: list[Word], start: float, end: float,
             return False
         peak = float(seg.max())
         floor = float(np.percentile(seg, 25))
-        return peak >= 0.25 and (peak - floor) >= 0.12
+        return peak >= 0.10 and (peak - floor) >= 0.06
 
     ivals: list[tuple[float, float]] = []
     cursor = start

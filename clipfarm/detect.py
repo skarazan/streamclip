@@ -275,6 +275,7 @@ class Moment:
     crowd_peak: float = 0.0  # cluster median start = where the payoff lives
     trigger_quote: str = ""  # editor's quoted cause — must appear in the clip
     button_quote: str = ""   # editor's quoted payoff — must appear in the clip
+    protect_start: float = -1.0  # trigger start _trim_head must not cross
 
 
 def _transcript_lines(words: list[Word],
@@ -785,7 +786,9 @@ def rerank_moments(moments: list[Moment], words: list[Word],
                 if lo <= s < e <= hi and 14 <= e - s <= 45:
                     m.start, m.end = s, e
                 m.start = min(m.start, m.crowd_peak - 6.0)
-                m.end = max(m.end, m.crowd_peak + 8.0)
+                # end sits just past the payoff — never let it trail (a clip
+                # that runs 15s past the moment is what made 53-73s shorts)
+                m.end = min(max(m.end, m.crowd_peak + 8.0), m.crowd_peak + 13.0)
                 if m.end - m.start > 34.0:  # keep the END (payoff side)
                     m.start = m.end - 34.0
                 m.edited = True
@@ -813,6 +816,7 @@ def rerank_moments(moments: list[Moment], words: list[Word],
                                 if w.start <= x.start <= w.start + 6)
                 if sum(1 for t in set(tqt) if t in near) >= need:
                     m.start = max(0.0, w.start - 1.0)  # open on the read
+                    m.protect_start = m.start  # _trim_head must not cross it
                     m.edited = True
                     break
         if c.get("title"):
@@ -937,7 +941,8 @@ def remap_words(words: list[Word], ivals: list[tuple[float, float]]
     return out
 
 
-def _trim_head(m: Moment, words: list[Word], max_len: float) -> None:
+def _trim_head(m: Moment, words: list[Word], max_len: float,
+               protect: float | None = None) -> None:
     """Length budget comes out of the HEAD, never the ending — the punchline
     lives at the end; the start is expendable setup. Cuts land on utterance
     boundaries (word after a pause), and leading dead air goes first even
@@ -951,6 +956,8 @@ def _trim_head(m: Moment, words: list[Word], max_len: float) -> None:
     if m.end - m.start <= max_len:
         return
     floor = m.end - max_len
+    if protect is not None and protect < floor:
+        floor = protect  # keep the trigger/setup even if it runs long
     prev_end = 0.0
     start = floor  # worst case: blind trim (old behaviour)
     for w in words:
@@ -994,17 +1001,12 @@ def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
             _settle_end(m, profile, words, max_extra=1.5, tail_pad=0.5)
         else:
             _settle_end(m, profile, words)
-        # over budget: trim dead air at the head — NEVER the ending. The
-        # reaction/reveal lives at the end; the start is expendable setup.
-        # BUT crowd moments already have intentional editor+pullback bounds
-        # (the start may deliberately hold the trigger/donation read) — head-
-        # trimming to max_len would amputate that setup, so skip it for them;
-        # the render's jump-cut compresses their length instead.
-        if not m.crowd:
-            _trim_head(m, words, max_len)
-        # crowd start is intentional -> only snap to a word edge, never let
-        # the length-budget branch shove it forward (1e9 disables that)
-        _snap_start(m, words, 1e9 if m.crowd else max_len)
+        # trim length from the HEAD (never the ending) — but never past a
+        # protected trigger start (a pulled-back donation/message read). A
+        # crowd clip with no protected trigger is capped normally.
+        _prot = m.protect_start if m.protect_start >= 0 else None
+        _trim_head(m, words, max_len, protect=_prot)
+        _snap_start(m, words, 1e9 if _prot is not None else max_len)
         if m.end - m.start < min_len:
             m.start = max(0.0, m.end - min_len)  # more setup; ending stays put
             if m.end - m.start < min_len:

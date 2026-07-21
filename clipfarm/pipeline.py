@@ -375,7 +375,7 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         # captions from a per-clip re-transcription — wording drifts
         return _quote_ratio(quote, ws) >= 0.45
 
-    verified = []
+    verified, too_long = [], []
     for i, m in enumerate(clips):
         ws = cap_words[i] or [w for w in words if m.start <= w.start <= m.end]
         # calibrated on real ratios: editors quote BUTTONS verbatim (reliable
@@ -387,6 +387,12 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         ok = (_quote_in(m.button_quote, ws)
               and (_quote_in(m.trigger_quote, ws) or setup_words >= 8))
         verified.append(ok)
+        # format fit: a moment whose setup+payoff, even after silence jump-
+        # cuts, still runs >38s can't be a tight Short without talking-level
+        # editing we don't do — poor fit, let the bench replace it
+        ivs = detect.keep_intervals(words, m.start, m.end, profile=raw_profile)
+        eff = sum(e - s for s, e in ivs)
+        too_long.append(eff > 38.0)
         rt = _quote_ratio(m.trigger_quote, ws)
         rb = _quote_ratio(m.button_quote, ws)
         print(f"  arc check '{m.title[:45]}': "
@@ -396,15 +402,18 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
               f"{' (no cam)' if not cams[i] else ''}")
 
     if len(clips) > want:
-        # cam-present is a HARD preference (a no-cam clip is a dead
-        # short); arc-verified breaks ties within cam/no-cam groups
+        # ranking: cam-present (a no-cam clip is a dead short) > fits-format
+        # (not too long) > arc-verified. The bench replaces poor-fit picks.
         ranked = sorted(range(len(clips)),
-                        key=lambda i: (not cams[i], not verified[i], i))
+                        key=lambda i: (not cams[i], too_long[i],
+                                       not verified[i], i))
         order = sorted(ranked[:want])
         for i in (set(range(len(clips))) - set(order)):
+            reasons = [r for r, on in (
+                ("off-cam", not cams[i]), ("too long", too_long[i]),
+                ("unverified arc", not verified[i])) if on]
             print(f"  dropping '{clips[i].title[:45]}' "
-                  f"({'unverified arc' if not verified[i] else ''}"
-                  f"{'/off-cam' if not cams[i] else ''})")
+                  f"({'/'.join(reasons) or 'overshoot'})")
             segs[i].unlink(missing_ok=True)
         clips = [clips[i] for i in order]
         segs = [segs[i] for i in order]

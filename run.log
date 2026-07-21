@@ -5,42 +5,48 @@ Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
 Chat replay: 493 density samples, 26683 messages (sampled)
 Crowd ground truth: 457 viewer clips -> 67 moments, using top 15
 Tier A: crowd-first, skipping chunk scoring (15 crowd candidates)
-  editor pass kept 5/15 candidates
-Selected 5 clips:
-  [  31.9m] score 9 energy 0.32  CASEOH plays Wordle with one brain cell
-  [  36.0m] score 8 energy 0.21  CASEOH refuses to fly with a teen pilot
-  [  85.8m] score 8 energy 0.33  CASEOH gets distracted by Granny's new look
-  [ 107.1m] score 10 energy 0.44  CASEOH panicked so hard he forgot how to count
-  [ 189.6m] score 7 energy 0.16  CASEOH finds his voice actor clone
-[1/5] Downloading segment 1915s-1933s...
-[2/5] Downloading segment 2162s-2193s...
-[3/5] Downloading segment 5147s-5174s...
-[4/5] Downloading segment 6423s-6454s...
-[5/5] Downloading segment 11375s-11406s...
+  editor pass kept 6/15 candidates
+Selected 6 clips:
+  [  32.2m] score 9 energy 0.20  CASEOH is the ultimate Wordle genius
+  [  35.6m] score 8 energy 0.19  CASEOH is not trusting a 17-year-old pilot
+  [  85.1m] score 7 energy 0.34  CASEOH noticed Granny's fresh manicure
+  [ 106.9m] score 9 energy 0.44  CASEOH forgot Granny 3 hard mode rules
+  [ 189.5m] score 7 energy 0.18  CASEOH found his voice clone inside a game
+  [ 226.6m] score 8 energy 0.20  CASEOH has a goofy dream
+[1/6] Downloading segment 1934s-1968s...
+[2/6] Downloading segment 2137s-2193s...
+[3/6] Downloading segment 5108s-5186s...
+[4/6] Downloading segment 6416s-6454s...
+[5/6] Downloading segment 11370s-11406s...
+[6/6] Downloading segment 13597s-13660s...
 Facecam: cached VOD identity
-Facecam: 2/5 matched; unmatched clips = streamer off-cam -> full frame
-[1/5] Facecam none -> full frame
-[2/5] Facecam matched -> split layout
-[3/5] Facecam none -> full frame
-[4/5] Facecam none -> full frame
-[5/5] Facecam matched -> split layout
-Caption pass: groq turbo over 5 segments...
-  arc check 'CASEOH plays Wordle with one brain cell': unverified (trigger 33% 'Wait a minute, no, I'm not.' | button 0% 'I actually cannot believe that was so si') (no cam)
-  arc check 'CASEOH refuses to fly with a teen pilot': VERIFIED (trigger 78% 'Hey, Casey, I just got my private pilot'' | button 100% 'big dog, I'm grabbing a parachute and I'')
-  arc check 'CASEOH gets distracted by Granny's new look': unverified (trigger 8% 'Did you see her nails? When did she star' | button 14% 'Granny done got too much motion, bruh.') (no cam)
-  arc check 'CASEOH panicked so hard he forgot how to coun': VERIFIED (trigger 18% 'We are waiting for Grandpa to come in he' | button 100% 'Where's the gun? Where my ammo at, huh?') (no cam)
-  arc check 'CASEOH finds his voice actor clone': VERIFIED (trigger 100% 'Is that literally me making that noise?' | button 50% 'That has to be me!')
-  dropping 'CASEOH plays Wordle with one brain cell' (unverified arc/off-cam)
-  dropping 'CASEOH gets distracted by Granny's new look' (unverified arc/off-cam)
-[1/3] Rendering short...[2/3] Rendering short...
-
+Facecam: 5/6 matched; unmatched clips = streamer off-cam -> full frame
+[1/6] Facecam matched -> split layout
+[2/6] Facecam matched -> split layout
+[3/6] Facecam matched -> split layout
+[4/6] Facecam none -> full frame
+[5/6] Facecam matched -> split layout
+[6/6] Facecam matched -> split layout
+Caption pass: groq turbo over 6 segments...
+  arc check 'CASEOH is the ultimate Wordle genius': unverified (trigger 20% 'I'm the stupidest person I've ever lived' | button 33% 'I'm the goat baby')
+  arc check 'CASEOH is not trusting a 17-year-old pilot': VERIFIED (trigger 100% 'I just got my private pilot's license at' | button 56% 'doing a swanton bomb out of the side of ')
+  arc check 'CASEOH noticed Granny's fresh manicure': VERIFIED (trigger 85% 'Did you see her nails? When did she star' | button 62% 'Since when does Granny go to the nail sa')
+  arc check 'CASEOH forgot Granny 3 hard mode rules': VERIFIED (trigger 12% 'We blow his head off. We blow Granny's h' | button 100% 'Why did the shotgun only have one bullet') (no cam)
+  arc check 'CASEOH found his voice clone inside a game': VERIFIED (trigger 100% 'Is that literally me making that noise?' | button 50% 'That has to be me!')
+  arc check 'CASEOH has a goofy dream': VERIFIED (trigger 100% 'Who are... Excuse me, who are y'all?' | button 50% 'what a goofy dream, bruh!')
+  dropping 'CASEOH is the ultimate Wordle genius' (unverified arc)
+  dropping 'CASEOH forgot Granny 3 hard mode rules' (/off-cam)
+  dropping 'CASEOH has a goofy dream' ()
+[1/3] Rendering short...
+[2/3] Rendering short...
 [3/3] Rendering short...
   jump-cutting 1 silence(s), -2.4s dead air
   jump-cutting 2 silence(s), -4.7s dead air
-  -> out/2026-07-20_2824292950/03_caseoh-finds-his-voice-actor-clone.mp4
-  -> out/2026-07-20_2824292950/01_caseoh-refuses-to-fly-with-a-teen-pilot.mp4
-  -> out/2026-07-20_2824292950/02_caseoh-panicked-so-hard-he-forgot-how-to.mp4
+  jump-cutting 1 silence(s), -4.4s dead air
+  -> out/2026-07-20_2824292950/03_caseoh-found-his-voice-clone-inside-a-ga.mp4
+  -> out/2026-07-20_2824292950/01_caseoh-is-not-trusting-a-17-year-old-pil.mp4
+  -> out/2026-07-20_2824292950/02_caseoh-noticed-granny-s-fresh-manicure.mp4
 
-Done in 2.0 min. Shorts + titles in: out/2026-07-20_2824292950/
+Done in 5.4 min. Shorts + titles in: out/2026-07-20_2824292950/
 Review each clip, then upload from the YouTube app/studio.
-=== CASEOH v4 done Mon Jul 20 23:09:27 EDT 2026 ===
+=== CASEOH v5 done Mon Jul 20 23:17:11 EDT 2026 ===

@@ -1010,9 +1010,18 @@ def keep_intervals(words: list[Word], start: float, end: float,
     if len(ws) < 2:
         return [(start, end)]
 
-    def _loud_gap(a_end: float, b_start: float) -> bool:
-        # only called for gaps already longer than max_gap: keep only if
-        # genuinely loud (a sustained scream/effect), else it's dead air
+    def _keep_gap(a_end: float, b_start: float) -> bool:
+        # gap <= max_gap: always keep (short sounds / comedic beats).
+        # max_gap < gap <= 6s: keep only a genuinely LOUD sustained event
+        # (a scream/effect between words). gap > 6s: ALWAYS cut — no payoff
+        # sound lasts 6s+; a long no-speech stretch is dead air even when
+        # loud game music plays under it (that's what left a 26s gap in a
+        # clip). Duration overrides loudness past 6s.
+        gap = b_start - a_end
+        if gap <= max_gap:
+            return True
+        if gap > 6.0:
+            return False
         if profile is None or not len(profile):
             return False
         seg = profile[int(a_end):int(b_start) + 1]
@@ -1021,8 +1030,7 @@ def keep_intervals(words: list[Word], start: float, end: float,
     ivals: list[tuple[float, float]] = []
     cursor = start
     for a, b in zip(ws, ws[1:]):
-        gap = b.start - a.end
-        if gap > max_gap and not _loud_gap(a.end, b.start):
+        if not _keep_gap(a.end, b.start):
             ivals.append((cursor, a.end + keep_air * 0.6))
             cursor = b.start - keep_air * 0.4
     ivals.append((cursor, end))

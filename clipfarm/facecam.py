@@ -94,10 +94,15 @@ def _motion(video: Path, box: tuple[float, float, float, float],
 
 
 def detect_candidates(video: Path, samples: int = 9,
-                      allow_center: bool = False) -> list[dict]:
+                      allow_center: bool = False,
+                      min_frames: int | None = None,
+                      conf: float = 0.8) -> list[dict]:
     """All stable face clusters in a segment, as candidate cam boxes:
     [{box, center, hits, motion, emb}]. emb is a mean SFace embedding, or
-    None on the haar fallback path."""
+    None on the haar fallback path. `min_frames` overrides the stability
+    filter (identity matching needs only a few matching frames — the face
+    is confirmed by embedding, not by persistence); `conf` is the YuNet
+    detection threshold (lower catches small/dark cam overlays)."""
     cap = cv2.VideoCapture(str(video))
     if not cap.isOpened():
         return []
@@ -106,7 +111,7 @@ def detect_candidates(video: Path, samples: int = 9,
     H = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
 
     if _YUNET.exists():
-        det = cv2.FaceDetectorYN.create(str(_YUNET), "", (320, 320), 0.8)
+        det = cv2.FaceDetectorYN.create(str(_YUNET), "", (320, 320), conf)
         detect = lambda fr: _detect_faces_yunet(det, fr)  # noqa: E731
     else:
         cascade = cv2.CascadeClassifier(
@@ -144,9 +149,10 @@ def detect_candidates(video: Path, samples: int = 9,
     cap.release()
 
     out = []
+    floor = min_frames if min_frames is not None else max(4, samples // 2)
     for c in clusters:
         # stable through most of the clip, not a flash of game imagery
-        if len(c["frames"]) < max(4, samples // 2):
+        if len(c["frames"]) < floor:
             continue
         x, y, w, h = np.median(np.array(c["boxes"], dtype=float), axis=0)
         mx, my = x + w / 2, y + h / 2
@@ -275,7 +281,10 @@ def match_segment(video: Path, identity: np.ndarray,
     """This segment's cam box: the off-center face that IS the streamer.
     None when the streamer isn't visible off-center (fullscreen cam, no cam,
     cam hidden) — full frame is the right layout then."""
-    cands = detect_candidates(video, samples)
+    # lenient: matching against a KNOWN identity is reliable from few frames,
+    # so catch small/dark/intermittent cam overlays (horror games) that the
+    # strict stability+confidence filter was dropping -> false "no cam"
+    cands = detect_candidates(video, samples, min_frames=3, conf=0.6)
     matches = [c for c in cands
                if c["emb"] is not None and _cosine(c["emb"], identity) >= MATCH_T]
     if not matches:

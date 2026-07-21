@@ -1,43 +1,45 @@
 pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
-Using VOD: https://www.twitch.tv/videos/2824292950
-Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
-  19145 words, ~4.1h of speech
-Chat replay: 493 density samples, 26683 messages (sampled)
-Crowd ground truth: 457 viewer clips -> 67 moments, using top 15
+Using VOD: https://www.twitch.tv/videos/2825075436
+Downloading audio track...
+  -> vod_audio.mp4 (312 MB, 3.5 GB disk left)
+Transcribing (Groq API, ~200x realtime; cached per VOD)...
+  groq chunk 1 (0-90min): total 6982 words
+  groq chunk 2 (90-180min): total 13305 words
+  groq chunk 3 (180-257min): total 20164 words
+Analyzing audio loudness...
+  20164 words, ~4.3h of speech
+Chat replay: 515 density samples, 27728 messages (sampled)
+Crowd ground truth: 472 viewer clips -> 65 moments, using top 15
 Tier A: crowd-first, skipping chunk scoring (15 crowd candidates)
-  editor pass kept 4/15 candidates
-Selected 4 clips:
-  [  30.8m] score 8 energy 0.34  CASEOH has a massive Wordle realization
-  [  35.6m] score 8 energy 0.18  CASEOH reacts to a 17 year old pilot
-  [ 106.9m] score 9 energy 0.44  CASEOH panicked so hard he forgot how to count
-  [ 227.1m] score 8 energy 0.23  CASEOH gets the ultimate jump scare
-[1/4] Downloading segment 1850s-1933s...
-[2/4] Downloading segment 2137s-2189s...
-[3/4] Downloading segment 6416s-6454s...
-[4/4] Downloading segment 13625s-13660s...
-Facecam: cached VOD identity
-Facecam: 2/4 matched; unmatched clips = streamer off-cam -> full frame
-[1/4] Facecam none -> full frame
-[2/4] Facecam matched -> split layout
-[3/4] Facecam none -> full frame
-[4/4] Facecam matched -> split layout
-Caption pass: groq turbo over 4 segments...
-  arc check 'CASEOH has a massive Wordle realization': VERIFIED (trigger 100% 'I'm out of options for second letter let' | button 100% 'I'm the goat baby') (no cam)
-  arc check 'CASEOH reacts to a 17 year old pilot': VERIFIED (trigger 100% 'I just got my private pilot's license at' | button 100% 'I'm grabbing a parachute and I'm doing a')
-  arc check 'CASEOH panicked so hard he forgot how to coun': VERIFIED (trigger 8% 'We are waiting for Grandpa to come in he' | button 100% 'Where's the gun? Where my ammo at, huh?') (no cam)
-  arc check 'CASEOH gets the ultimate jump scare': unverified (trigger 33% 'Why are we up in the middle of the night' | button 0% 'Who are you? You already know.')
-  dropping 'CASEOH has a massive Wordle realization' (off-cam/too long)
-[1/3] Rendering short...
-[2/3] Rendering short...[3/3] Rendering short...
+  editor pass kept 3/15 candidates
+Selected 3 clips:
+  [  96.4m] score 9 energy 0.54  CASEOH Panics Over This Scary Maid Outfit
+  [ 125.6m] score 8 energy 0.41  CASEOH Gets Instantly Punished For Hacking
+  [ 231.3m] score 8 energy 0.39  CASEOH Cheered At The Absolute Wrong Time
+[1/3] Downloading segment 5784s-5818s...
+[2/3] Downloading segment 7536s-7595s...
+[3/3] Downloading segment 13879s-13918s...
+  cam probes: faces in 5/8 slices
+  streamer identity locked (5/5 probes)
+Facecam: 1/3 matched; unmatched clips = streamer off-cam -> full frame
+[1/3] Facecam none -> full frame
+[2/3] Facecam none -> full frame
+[3/3] Facecam matched -> split layout
+Caption pass: groq turbo over 3 segments...
+  arc check 'CASEOH Panics Over This Scary Maid Outfit': unverified (trigger 75% 'Lord [SCREAM] have mercy.' | button 17% 'Why does he fall over the screen?') (no cam)
+  arc check 'CASEOH Gets Instantly Punished For Hacking': VERIFIED (trigger 80% 'Turned [loud] into a Bitcoin miner.' | button 67% 'That's what I do, buddy.') (no cam)
+  arc check 'CASEOH Cheered At The Absolute Wrong Time': unverified (trigger 0% 'Oh, my God!' | button 0% 'Wrong time to cheer?')
+[1/3] Rendering short...[2/3] Rendering short...
 
-  jump-cutting 1 silence(s), -7.0s dead air  jump-cutting 2 silence(s), -14.5s dead air
+[3/3] Rendering short...  jump-cutting 3 silence(s), -34.4s dead air
 
-  smart-cut: 52s -> 15s (3 kept span(s))
-  jump-cutting 2 silence(s), -37.0s dead air
-  -> out/2026-07-21_2824292950/03_caseoh-gets-the-ultimate-jump-scare.mp4
-  -> out/2026-07-21_2824292950/02_caseoh-panicked-so-hard-he-forgot-how-to.mp4
-  -> out/2026-07-21_2824292950/01_caseoh-reacts-to-a-17-year-old-pilot.mp4
+  -> out/2026-07-21_2825075436/02_caseoh-gets-instantly-punished-for-hacki.mp4
+  smart-cut dropped the button -> fallback to silence cuts
+  jump-cutting 1 silence(s), -5.5s dead air
+  smart-cut dropped the button -> fallback to silence cuts
+  -> out/2026-07-21_2825075436/01_caseoh-panics-over-this-scary-maid-outfi.mp4
+  -> out/2026-07-21_2825075436/03_caseoh-cheered-at-the-absolute-wrong-tim.mp4
 
-Done in 2.7 min. Shorts + titles in: out/2026-07-21_2824292950/
+Done in 6.8 min. Shorts + titles in: out/2026-07-21_2825075436/
 Review each clip, then upload from the YouTube app/studio.
-=== SMARTCUT run done Tue Jul 21 00:16:58 EDT 2026 ===
+=== NEWVOD done Tue Jul 21 19:48:37 EDT 2026 ===

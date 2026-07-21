@@ -798,6 +798,27 @@ def rerank_moments(moments: list[Moment], words: list[Word],
         m.score = float(c["post_score"])
         m.trigger_quote = c.get("trigger_quote", "")
         m.button_quote = c.get("button_quote", "")
+        # TRIGGER PULLBACK: if the trigger phrase also occurs BEFORE the
+        # chosen start (streamer echoing a donation/message read earlier),
+        # open on the ORIGINAL read so the viewer sees the cause. Safe now
+        # that select_clips is jump-cut-aware — the dead gap between the read
+        # and his reaction gets compressed, keeping the clip tight.
+        import re as _re
+        tqt = [t for t in _re.sub(r"[^a-z0-9 ]", " ",
+                                  m.trigger_quote.lower()).split() if len(t) > 3]
+        if tqt:
+            need = 0.6 * len(set(tqt))
+            for w in words:
+                if w.start >= m.start - 3:
+                    break
+                if w.start < m.start - 45:
+                    continue
+                near = " ".join(x.text.lower() for x in words
+                                if w.start <= x.start <= w.start + 6)
+                if sum(1 for t in set(tqt) if t in near) >= need:
+                    m.start = max(0.0, w.start - 1.0)
+                    m.edited = True
+                    break
         if c.get("title"):
             m.title = c["title"]
         if c.get("hook"):
@@ -867,32 +888,28 @@ def _settle_end(m: Moment, profile: np.ndarray, words: list[Word],
 
 
 def keep_intervals(words: list[Word], start: float, end: float,
-                   max_gap: float = 2.2, keep_air: float = 0.45,
+                   max_gap: float = 3.5, keep_air: float = 0.45,
                    profile: np.ndarray | None = None
                    ) -> list[tuple[float, float]]:
-    """Jump-cut plan for one clip: silences longer than max_gap shrink to a
-    beat (keep_air), so the length budget goes to content instead of dead
-    air. Comedic pauses (< max_gap) survive untouched. A gap that is LOUD
-    (game audio, NPC noise, a scream between words) is NOT dead air — the
-    payoff can BE a non-speech sound, so those gaps are never cut. Returns
-    absolute (start, end) intervals to KEEP; one interval means no cuts."""
+    """Jump-cut plan for one clip: dead air LONGER than max_gap shrinks to a
+    beat (keep_air). DURATION is the real signal — measured on real clips,
+    quiet NPC sounds/jumpscares are loudness-identical to silence (both mean
+    ~0.03); what separates a payoff sound (2-3s gap) from dead air (a 9s
+    gap) is length. So short gaps are always kept (NPC sounds, comedic beats
+    live there); only long gaps are cut, and even then not if they're
+    genuinely LOUD (a real scream/effect). Returns absolute (start, end)
+    intervals to KEEP; one interval means no cuts."""
     ws = [w for w in words if w.end > start and w.start < end]
     if len(ws) < 2:
         return [(start, end)]
 
     def _loud_gap(a_end: float, b_start: float) -> bool:
-        # a payoff SOUND (jumpscare, NPC voice, sound effect) is a transient:
-        # a spike well above the gap's own quiet floor. Steady ambient/music
-        # (peak ~= floor) and true silence stay cuttable — so this preserves
-        # sound events without bringing back the draggy over-preservation.
+        # only called for gaps already longer than max_gap: keep only if
+        # genuinely loud (a sustained scream/effect), else it's dead air
         if profile is None or not len(profile):
             return False
         seg = profile[int(a_end):int(b_start) + 1]
-        if not len(seg):
-            return False
-        peak = float(seg.max())
-        floor = float(np.percentile(seg, 25))
-        return peak >= 0.10 and (peak - floor) >= 0.06
+        return bool(len(seg) and float(seg.max()) >= 0.45)
 
     ivals: list[tuple[float, float]] = []
     cursor = start
@@ -970,7 +987,8 @@ def _snap_start(m: Moment, words: list[Word], max_len: float) -> None:
 def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
                  min_len: float, max_len: float,
                  words: list[Word] | None = None,
-                 min_gap_s: float = 0.0) -> list[Moment]:
+                 min_gap_s: float = 0.0,
+                 raw_profile: np.ndarray | None = None) -> list[Moment]:
     """Rank by LLM score + loudness, enforce length bounds and no overlap."""
     words = words or []
     for m in moments:
@@ -980,9 +998,17 @@ def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
             _settle_end(m, profile, words, max_extra=1.5, tail_pad=0.5)
         else:
             _settle_end(m, profile, words)
-        # over budget: trim dead air at the head — NEVER the ending.
-        _trim_head(m, words, max_len)
-        _snap_start(m, words, max_len)
+        # length control is JUMP-CUT AWARE: don't trim the head if silence
+        # removal already brings the clip under budget. This keeps a pulled-
+        # back setup (a donation read separated from the reaction by a long
+        # dead gap) — the gap is cut at render, not the setup.
+        eff = m.end - m.start
+        if raw_profile is not None:
+            eff = sum(e - s for s, e in
+                      keep_intervals(words, m.start, m.end, profile=raw_profile))
+        if eff > max_len:
+            _trim_head(m, words, max_len)
+        _snap_start(m, words, max_len if eff > max_len else 1e9)
         if m.end - m.start < min_len:
             m.start = max(0.0, m.end - min_len)  # more setup; ending stays put
             if m.end - m.start < min_len:

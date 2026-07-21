@@ -271,7 +271,7 @@ def probe_vod(vod_url: str, duration_s: float, work_dir: Path,
 
 
 def match_segment(video: Path, identity: np.ndarray,
-                  samples: int = 9) -> tuple | None:
+                  samples: int = 18) -> tuple | None:
     """This segment's cam box: the off-center face that IS the streamer.
     None when the streamer isn't visible off-center (fullscreen cam, no cam,
     cam hidden) — full frame is the right layout then."""

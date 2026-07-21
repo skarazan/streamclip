@@ -237,6 +237,7 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         want + 3, cfg["clips"]["min_length"], cfg["clips"]["max_length"],
         words=words,
         min_gap_s=cfg["clips"].get("min_gap_minutes", 20) * 60,
+        raw_profile=raw_profile,
     )
     if not clips:
         raise SystemExit("No clip candidates found.")

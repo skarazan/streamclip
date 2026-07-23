@@ -464,21 +464,20 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         # VERIFIED FIRST: an unverified clip (no real trigger->payoff arc)
         # is "random bs" and must never ship over a real moment; rank the
         # rest by cam-present > fits-format.
+        # verified-first, then cam, then length — but keep ALL so a quota can
+        # be filled with the next-best when verified picks run short (the A/B
+        # test needs its full count from each source to compare fairly)
         def _rank(idxs):
-            verd = [i for i in idxs if verified[i]]
-            base = verd if len(verd) >= 1 else idxs
-            return sorted(base, key=lambda i: (not cams[i], too_long[i],
-                                               not verified[i], i))
+            return sorted(idxs, key=lambda i: (not verified[i], not cams[i],
+                                               too_long[i], i))
         if ai_count > 0:
-            # A/B split: keep the best crowd_want crowd picks AND the best
-            # ai_count AI picks, so the batch always has both to compare
+            # A/B split: best crowd_want crowd picks AND best ai_count AI picks
             ci = [i for i in range(len(clips)) if clips[i].source != "ai"]
             ai = [i for i in range(len(clips)) if clips[i].source == "ai"]
             order = sorted(_rank(ci)[:crowd_want] + _rank(ai)[:ai_count])
         else:
-            pool = [i for i in range(len(clips)) if verified[i]]
-            if len(pool) < want:
-                pool = list(range(len(clips)))
+            # verified-first ranking already prefers real clips; unverified
+            # only fill in when fewer than `want` verified exist
             order = sorted(_rank(list(range(len(clips))))[:want])
         for i in (set(range(len(clips))) - set(order)):
             reasons = [r for r, on in (

@@ -459,6 +459,26 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         # captions from a per-clip re-transcription — wording drifts
         return _quote_ratio(quote, ws) >= 0.45
 
+    def _is_scream(quote: str) -> bool:
+        """The button is a noise, not a sentence ('AHHHHH!', 'WAAAHHH')."""
+        toks = [t for t in re.sub(r"[^a-z ]", " ", quote.lower()).split() if t]
+        return bool(toks) and all(len(set(t)) <= 3 for t in toks)
+
+    def _acoustic_button(m) -> bool:
+        """Scream buttons can't be text-matched — whisper spells 'AHHHHH' a
+        dozen ways or drops it entirely — so verify that payoff acoustically:
+        a loudness spike in the clip's back half. Without this the gate threw
+        away exactly the jumpscare/scream clips that carry a Short."""
+        if raw_profile is None or not len(raw_profile):
+            return False
+        a, b = int(m.start), int(min(m.end, len(raw_profile) - 1))
+        seg = raw_profile[a:b + 1]
+        if len(seg) < 4:
+            return False
+        tail = seg[len(seg) // 2:]
+        med = float(sorted(seg)[len(seg) // 2]) or 0.01
+        return bool(len(tail)) and float(tail.max()) >= max(0.55, 2.0 * med)
+
     verified, too_long = [], []
     for i, m in enumerate(clips):
         ws = cap_words[i] or [w for w in words if m.start <= w.start <= m.end]
@@ -468,8 +488,9 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         dur = (ws[-1].end - ws[0].start) if ws else 0.0
         setup_words = sum(1 for w in ws
                           if ws and w.start - ws[0].start <= dur * 0.5)
-        ok = (_quote_in(m.button_quote, ws)
-              and (_quote_in(m.trigger_quote, ws) or setup_words >= 8))
+        button_ok = (_quote_in(m.button_quote, ws)
+                     or (_is_scream(m.button_quote) and _acoustic_button(m)))
+        ok = button_ok and (_quote_in(m.trigger_quote, ws) or setup_words >= 8)
         verified.append(ok)
         # format fit: smart-cut can now condense talking-dense clips, so only
         # a moment whose silence-cut length is STILL huge (>52s — beyond what
@@ -483,7 +504,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         print(f"  arc check '{m.title[:45]}': "
               f"{'VERIFIED' if ok else 'unverified'} "
               f"(trigger {rt:.0%} '{m.trigger_quote[:40]}' | "
-              f"button {rb:.0%} '{m.button_quote[:40]}')"
+              f"button {'SCREAM' if rb < 0.45 and button_ok else f'{rb:.0%}'}"
+              f" '{m.button_quote[:40]}')"
               f"{' (no cam)' if not cams[i] else ''}")
 
     if len(clips) > want:

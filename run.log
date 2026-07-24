@@ -5,60 +5,53 @@ Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
 Chat replay: 515 density samples, 27728 messages (sampled)
 Crowd ground truth: 472 viewer clips -> 65 moments, using top 15
 Tier A: crowd-first, skipping chunk scoring (15 crowd candidates)
-  editor pass kept 3/15 candidates
-A/B: also scoring the VOD for 2 AI-chosen clips...
-  editor pass kept 6/15 candidates
-A/B bench: 3 crowd + 6 AI moments
-Selected 7 clips:
-  [  96.4m] score 9 energy 0.54  CASEOH Reacts to a Maid Suit Fit Check
-  [ 125.6m] score 8 energy 0.41  CASEOH Panics Trying to Mine Bitcoin
-  [ 230.8m] score 8 energy 0.31  CASEOH Celebrates at the Wrong Time
-  [  59.1m] score 8 energy 0.42  CASEOH Loses It Over Gluttonous Burger
-  [  96.2m] score 9 energy 0.43  CASEOH Literally Melts Down Over NPC Staring
-  [ 125.3m] score 9 energy 0.48  CASEOH Panicked So Hard He Hacked Himself
-  [ 249.9m] score 9 energy 0.39  CASEOH Panics So Hard He Rages At Devs
-[1/7] Downloading segment 5784s-5818s...
-[2/7] Downloading segment 7536s-7595s...
-[3/7] Downloading segment 13851s-13918s...
-[4/7] Downloading segment 3546s-3602s...
-[5/7] Downloading segment 5770s-5826s...
-[6/7] Downloading segment 7519s-7562s...
-[7/7] Downloading segment 14996s-15018s...
+  editor pass kept 5/15 candidates
+Also scoring the VOD for AI-chosen moments...
+  editor pass kept 5/15 candidates
+Merged judge: 8 candidates (crowd + AI) -> head-to-head
+  editor pass kept 6/8 candidates
+  judge kept: 5 crowd, 1 AI
+Selected 6 clips:
+  [  30.1m] score 7 energy 0.41  CASEOH Gets Instantly Jumpscared
+  [  59.6m] score 6 energy 0.48  CASEOH Loses It Over a Disgustingly Massive Burger
+  [  96.4m] score 9 energy 0.54  CASEOH Panicked So Hard He Screamed at Tanner
+  [ 117.4m] score 7 energy 0.13  CASEOH Unexpectedly Turns Into a Chipmunk
+  [ 125.8m] score 8 energy 0.49  CASEOH Realizes He Is Stuck Forever
+  [ 231.1m] score 9 energy 0.34  CASEOH Cheered at the Worst Possible Moment
+[1/6] Downloading segment 1809s-1844s...
+[2/6] Downloading segment 3574s-3604s...
+[3/6] Downloading segment 5784s-5818s...
+[4/6] Downloading segment 7046s-7080s...
+[5/6] Downloading segment 7548s-7584s...
+[6/6] Downloading segment 13866s-13918s...
 Facecam: cached VOD identity
-Facecam: 5/7 matched; unmatched clips = streamer off-cam -> full frame
-[1/7] Facecam none -> full frame
-[2/7] Facecam matched -> split layout
-[3/7] Facecam matched -> split layout
-[4/7] Facecam matched -> split layout
-[5/7] Facecam none -> full frame
-[6/7] Facecam matched -> split layout
-[7/7] Facecam matched -> split layout
-Caption pass: groq turbo over 7 segments...
-  arc check 'CASEOH Reacts to a Maid Suit Fit Check': unverified (trigger 0% 'Oh, oh my God.' | button 17% 'Why does he fall over the screen?') (no cam)
-  arc check 'CASEOH Panics Trying to Mine Bitcoin': VERIFIED (trigger 100% 'Turned into a Bitcoin miner.' | button 67% 'That's what I do, buddy.')
-  arc check 'CASEOH Celebrates at the Wrong Time': unverified (trigger 100% 'Wait, I just saw the puppet in there!' | button 0% 'Wrong time to cheer? I thought it was- I')
-  arc check 'CASEOH Loses It Over Gluttonous Burger': VERIFIED (trigger 100% 'bro, stop!' | button 100% 'Look at this burger, dude!')
-  arc check 'CASEOH Literally Melts Down Over NPC Staring': VERIFIED (trigger 100% 'Lord have mercy.' | button 80% 'I can't stand you Tanner. Bruh!') (no cam)
-  arc check 'CASEOH Panicked So Hard He Hacked Himself': VERIFIED (trigger 100% 'mining it for Bitcoin. Get hacked, idiot' | button 100% 'WHAT?')
-  arc check 'CASEOH Panics So Hard He Rages At Devs': VERIFIED (trigger 100% 'Look, I can't move!' | button 100% 'what are we doing, devs?')
-  dropping 'CASEOH Literally Melts Down Over NPC Staring' (off-cam)
-  dropping 'CASEOH Panics So Hard He Rages At Devs' (overshoot)
-[1/5] Rendering short...
-[2/5] Rendering short...  jump-cutting 1 silence(s), -7.8s dead air
+Facecam: 5/6 matched; unmatched clips = streamer off-cam -> full frame
+[1/6] Facecam matched -> split layout
+[2/6] Facecam matched -> split layout
+[3/6] Facecam none -> full frame
+[4/6] Facecam matched -> split layout
+[5/6] Facecam matched -> split layout
+[6/6] Facecam matched -> split layout
+Caption pass: groq turbo over 6 segments...
+  arc check 'CASEOH Gets Instantly Jumpscared': unverified (trigger 100% 'skin stapler is gonna release in august' | button 0% 'AHHHHH! AHHHHH!')
+  arc check 'CASEOH Loses It Over a Disgustingly Massive B': VERIFIED (trigger 71% 'bro, stop! Man, I'm about to quit answer' | button 100% 'Look at this burger, dude!')
+  arc check 'CASEOH Panicked So Hard He Screamed at Tanner': unverified (trigger 86% 'Why are you looking up at me like that T' | button 17% 'Why does he fall over the screen?') (no cam)
+  arc check 'CASEOH Unexpectedly Turns Into a Chipmunk': unverified (trigger 50% 'Chad, I'm lagging?' | button 25% 'Did I sound like a chipmunk?')
+  arc check 'CASEOH Realizes He Is Stuck Forever': unverified (trigger 50% 'Oh my goodness, I'm locked.' | button 0% 'AAAAAAAHHHHHHHHHHHHHHHHH! WAAAHHHHH!')
+  arc check 'CASEOH Cheered at the Worst Possible Moment': unverified (trigger 100% 'Uh oh, this is like Final Destination.' | button 14% 'Wrong time to cheer? I thought she was g')
+  dropping 'CASEOH Panicked So Hard He Screamed at Tanner' (off-cam/unverified arc)
+  dropping 'CASEOH Realizes He Is Stuck Forever' (unverified arc)
+  dropping 'CASEOH Cheered at the Worst Possible Moment' (unverified arc)
+[1/3] Rendering short...
+[2/3] Rendering short...  jump-cutting 1 silence(s), -15.0s dead air[3/3] Rendering short...
 
-[3/5] Rendering short...  jump-cutting 3 silence(s), -34.4s dead air
 
-  jump-cutting 3 silence(s), -37.3s dead air
-  -> out/2026-07-23_2825075436/01_CROWD_caseoh-reacts-to-a-maid-suit-fit-check.mp4
-[4/5] Rendering short...
-  jump-cutting 5 silence(s), -27.8s dead air
-  -> out/2026-07-23_2825075436/02_CROWD_caseoh-panics-trying-to-mine-bitcoin.mp4
-[5/5] Rendering short...
-  jump-cutting 2 silence(s), -17.9s dead air
-  -> out/2026-07-23_2825075436/03_CROWD_caseoh-celebrates-at-the-wrong-time.mp4
-  -> out/2026-07-23_2825075436/04_AI_caseoh-loses-it-over-gluttonous-burger.mp4
-  -> out/2026-07-23_2825075436/05_AI_caseoh-panicked-so-hard-he-hacked-himsel.mp4
+  jump-cutting 2 silence(s), -12.6s dead air  jump-cutting 3 silence(s), -12.0s dead air
 
-Done in 16.4 min. Shorts + titles in: out/2026-07-23_2825075436/
+  -> out/2026-07-23_2825075436/02_AI_caseoh-loses-it-over-a-disgustingly-mass.mp4
+  -> out/2026-07-23_2825075436/03_CROWD_caseoh-unexpectedly-turns-into-a-chipmun.mp4
+  -> out/2026-07-23_2825075436/01_CROWD_caseoh-gets-instantly-jumpscared.mp4
+
+Done in 3.7 min. Shorts + titles in: out/2026-07-23_2825075436/
 Review each clip, then upload from the YouTube app/studio.
-=== AB3 done Thu Jul 23 01:00:28 EDT 2026 ===
+=== MERGE done Thu Jul 23 20:23:54 EDT 2026 ===

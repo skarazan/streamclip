@@ -182,14 +182,27 @@ def _split_filter(segment: Path, cam: tuple[float, float, float, float],
         gw, gh = sw, sw / g_ar
     gx, gy = (sw - gw) / 2, (sh - gh) / 2
 
-    # the source's own cam overlay already fills the top pane — slide the
-    # gameplay crop sideways so it doesn't appear a second time below
-    cam_x1, cam_x2 = fx * sw, (fx + fw) * sw
-    if gw < sw and gx < cam_x2 and gx + gw > cam_x1:
-        if (cam_x1 + cam_x2) / 2 < sw / 2:
-            gx = min(cam_x2, sw - gw)   # cam on the left -> slide right
+    # the source's own cam overlay already fills the top pane — keep the
+    # gameplay crop clear of it so the streamer isn't shown twice. Sliding
+    # only works when a full-width slice fits beside the cam; big overlays
+    # leave none, so shrink the crop into the widest clear span and let the
+    # gameplay zoom rather than duplicate him.
+    # pad the exclusion: the detected box tracks the head, and a cam overlay
+    # spills past it (shoulders, hood, chair)
+    pad = 0.06 * sw
+    cam_x1, cam_x2 = max(0.0, fx * sw - pad), min(sw, (fx + fw) * sw + pad)
+    if gx < cam_x2 and gx + gw > cam_x1:
+        left, right = cam_x1, sw - cam_x2
+        if left >= right:
+            span_x, span_w = 0.0, left
         else:
-            gx = max(cam_x1 - gw, 0.0)  # cam on the right -> slide left
+            span_x, span_w = cam_x2, right
+        if span_w >= gw:
+            gx = min(max(span_x, span_x + (span_w - gw) / 2), sw - gw)
+        else:
+            gw, gh = span_w, min(span_w / g_ar, sh)
+            gw = gh * g_ar
+            gx, gy = span_x + (span_w - gw) / 2, (sh - gh) / 2
 
     return (
         f"[0:v]split=2[c][g];"

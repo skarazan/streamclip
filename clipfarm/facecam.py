@@ -14,6 +14,7 @@ Fallbacks, in order: identity match (yunet+sface) -> whole-VOD position
 consensus (yunet only) -> full frame.
 """
 
+import math
 from pathlib import Path
 
 import cv2
@@ -24,6 +25,7 @@ _YUNET = _MODELS / "yunet.onnx"
 _SFACE = _MODELS / "sface.onnx"
 
 MATCH_T = 0.363  # SFace cosine match threshold (opencv_zoo reference value)
+DOMINANT_CAM = 0.62  # cam wider than this -> no gameplay left beside it
 
 
 def _cosine(a: np.ndarray, b: np.ndarray) -> float:
@@ -285,16 +287,38 @@ def match_segment(video: Path, identity: np.ndarray,
     # so catch small/dark/intermittent cam overlays (horror games) that the
     # strict stability+confidence filter was dropping -> false "no cam"
     cands = detect_candidates(video, samples, min_frames=3, conf=0.6)
-    matches = [c for c in cands
-               if c["emb"] is not None and _cosine(c["emb"], identity) >= MATCH_T]
+    matches = [(c, _cosine(c["emb"], identity)) for c in cands
+               if c["emb"] is not None]
+    matches = [(c, s) for c, s in matches if s >= MATCH_T]
     if not matches:
         return None
-    # corner-most first, smaller box on ties (a video of the streamer is
-    # bigger and closer to center than their cam overlay)
-    best = max(matches, key=lambda c: (max(abs(c["center"][0] - 0.5),
-                                           abs(c["center"][1] - 0.5)),
-                                       -c["box"][2]))
-    return best["box"]
+    # Ranking by corner-distance alone put dim wall/game detections that
+    # happened to match the identity ahead of the real cam whenever the cam
+    # sat near the middle (big overlays do) — the top pane then showed a
+    # slice of empty room. Rank by prominence instead: how strongly it
+    # matches, how much frame it occupies, how much it moves. A real cam is
+    # big and alive; a phantom match is small and static.
+    def prominence(item) -> float:
+        c, sim = item
+        area = c["box"][2] * c["box"][3]
+        return sim * math.sqrt(area) * (0.5 + min(c["motion"], 0.3))
+
+    best = max(matches, key=prominence)
+    top = prominence(best)
+    # corner-most wins only among comparably prominent matches — that keeps
+    # the old guard for "streamer's own video playing on screen next to
+    # their cam", where both are real and the cam is the edge one
+    close = [m for m in matches if prominence(m) >= 0.75 * top]
+    if len(close) > 1:
+        best = max(close, key=lambda m: max(abs(m[0]["center"][0] - 0.5),
+                                            abs(m[0]["center"][1] - 0.5)))
+    box = best[0]["box"]
+    # A cam this wide leaves no gameplay strip beside it, so the split would
+    # show the streamer twice — top pane and again inside the bottom one.
+    # Full frame is the honest layout then.
+    if box[2] >= DOMINANT_CAM:
+        return None
+    return box
 
 
 def detect_facecam(video: Path, samples: int = 9) -> tuple[float, float, float, float] | None:

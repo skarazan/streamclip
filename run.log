@@ -246,3 +246,57 @@ Done in 4.2 min. Shorts + titles in: out/2026-07-23_2825075436/
 Review each clip, then upload from the YouTube app/studio.
 === RERUN3 done ===
 === RERUN4 done ===
+=== RERUN4 Thu Jul 23 21:04:36 EDT 2026 ===
+pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
+Using VOD: https://www.twitch.tv/videos/2825075436
+Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
+  20164 words, ~4.3h of speech
+Chat replay: 515 density samples, 27728 messages (sampled)
+Crowd ground truth: 472 viewer clips -> 65 moments, using top 15
+Tier A: crowd-first, skipping chunk scoring (15 crowd candidates)
+  editor pass kept 5/15 candidates
+Also scoring the VOD for AI-chosen moments...
+  editor pass kept 6/15 candidates
+Merged judge: 9 candidates (crowd + AI) -> head-to-head
+  editor pass kept 5/9 candidates
+  judge kept: 4 crowd, 1 AI
+Selected 5 clips:
+  [  53.5m] score 7 energy 0.46  CASEOH Demands Crab Rangoons Right Now
+  [  56.9m] score 7 energy 0.36  CASEOH Instantly Calms Down Because of Garlic Knots
+  [  96.4m] score 9 energy 0.54  CASEOH Terrified By Tanner's Creepy Face On Screen
+  [ 125.6m] score 7 energy 0.41  CASEOH Instantly Regrets Becoming A Hacker
+  [ 231.1m] score 8 energy 0.34  CASEOH Celebrated At The Absolute Worst Moment
+[1/5] Downloading segment 3212s-3246s...
+[2/5] Downloading segment 3414s-3446s...
+[3/5] Downloading segment 5784s-5818s...
+[4/5] Downloading segment 7536s-7595s...
+[5/5] Downloading segment 13866s-13918s...
+Facecam: cached VOD identity
+Facecam: 4/5 matched; unmatched clips = streamer off-cam -> full frame
+[1/5] Facecam matched -> split layout
+[2/5] Facecam matched -> split layout
+[3/5] Facecam none -> full frame
+[4/5] Facecam matched -> split layout
+[5/5] Facecam matched -> split layout
+Caption pass: groq turbo over 5 segments...
+  arc check 'CASEOH Demands Crab Rangoons Right Now': VERIFIED (trigger 80% 'I know I ain't eating Nutella donuts.' | button 100% 'Give me the Crab Rangoons now!')
+  arc check 'CASEOH Instantly Calms Down Because of Garlic': VERIFIED (trigger 100% 'quit with these sweets!' | button 100% 'All day.')
+  arc check 'CASEOH Terrified By Tanner's Creepy Face On S': unverified (trigger 0% 'Oh, oh my God.' | button 50% 'I can't stand you Tanner.') (no cam)
+  arc check 'CASEOH Instantly Regrets Becoming A Hacker': unverified (trigger 100% 'Turned into a Bitcoin miner.' | button 0% 'AAAAAAAHHHHHHHHHHHHHHHHH!')
+  arc check 'CASEOH Celebrated At The Absolute Worst Momen': unverified (trigger 100% 'Uh oh, this is like Final Destination.' | button 0% 'Wrong time to cheer?')
+  dropping 'CASEOH Terrified By Tanner's Creepy Face On S' (off-cam/unverified arc)
+  dropping 'CASEOH Celebrated At The Absolute Worst Momen' (unverified arc)
+[1/3] Rendering short...
+[2/3] Rendering short...
+[3/3] Rendering short...  jump-cutting 1 silence(s), -5.7s dead air
+
+  jump-cutting 3 silence(s), -34.4s dead air
+  smart-cut: 34s -> 16s (2 kept span(s))
+  jump-cutting 1 silence(s), -18.3s dead air
+  -> out/2026-07-23_2825075436/02_AI_caseoh-instantly-calms-down-because-of-g.mp4
+  -> out/2026-07-23_2825075436/03_CROWD_caseoh-instantly-regrets-becoming-a-hack.mp4
+  -> out/2026-07-23_2825075436/01_CROWD_caseoh-demands-crab-rangoons-right-now.mp4
+
+Done in 3.4 min. Shorts + titles in: out/2026-07-23_2825075436/
+Review each clip, then upload from the YouTube app/studio.
+=== RERUN4 done ===

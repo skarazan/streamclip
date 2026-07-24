@@ -59,14 +59,17 @@ def _detect_faces_haar(cascade, frame) -> list[np.ndarray]:
 def _expand_to_cam(x, y, w, h, W, H) -> tuple[float, float, float, float]:
     """Expand a head box to a webcam-style crop (head + shoulders, air above),
     returned as fractions of the frame."""
-    # deliberately a touch tighter than a real cam frame: the pane now fits
-    # the crop and blur-fills the rest, so overshooting drags a strip of
-    # gameplay in beside his face (visible, and read as "camera is messed
-    # up"), while undershooting just crops closer and still reads as a cam.
-    cw = w * 2.2
-    ch = h * 2.3
+    # Sized to sit INSIDE the overlay rather than match it. The pane fits the
+    # crop and blur-fills the rest, so any overshoot shows up as a strip of
+    # whatever is next to the cam — gameplay, or the video he is reacting to
+    # — and reads as a broken camera. Undershooting just frames him closer,
+    # which still reads as a cam. Snapping to the overlay's real border was
+    # tried and lost to textured video: a food close-up beside the cam beats
+    # a thin border on every edge score.
+    cw = w * 2.1
+    ch = h * 1.9
     cx0 = x + w / 2 - cw / 2
-    cy0 = y - h * 0.6
+    cy0 = y - h * 0.55
     cx0 = max(0.0, min(cx0, W - cw))
     cy0 = max(0.0, min(cy0, H - ch))
     cw = min(cw, W)

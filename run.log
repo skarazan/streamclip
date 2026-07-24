@@ -55,3 +55,61 @@ Caption pass: groq turbo over 6 segments...
 Done in 3.7 min. Shorts + titles in: out/2026-07-23_2825075436/
 Review each clip, then upload from the YouTube app/studio.
 === MERGE done Thu Jul 23 20:23:54 EDT 2026 ===
+=== RERUN Thu Jul 23 20:36:28 EDT 2026 ===
+pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
+Using VOD: https://www.twitch.tv/videos/2825075436
+Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
+  20164 words, ~4.3h of speech
+Chat replay: 515 density samples, 27728 messages (sampled)
+Crowd ground truth: 472 viewer clips -> 65 moments, using top 15
+Tier A: crowd-first, skipping chunk scoring (15 crowd candidates)
+  editor pass kept 5/15 candidates
+Also scoring the VOD for AI-chosen moments...
+  editor pass kept 6/15 candidates
+Merged judge: 9 candidates (crowd + AI) -> head-to-head
+  editor pass kept 6/9 candidates
+  judge kept: 5 crowd, 1 AI
+Selected 6 clips:
+  [  96.4m] score 9 energy 0.54  CASEOH Panicked So Hard He Screamed At His Screen
+  [ 110.3m] score 7 energy 0.23  CASEOH Terrified By New Game Master
+  [ 117.7m] score 7 energy 0.12  CASEOH Turned Into Alvin And The Chipmunks
+  [ 125.6m] score 8 energy 0.41  CASEOH Had A Complete Meltdown Over Hacking
+  [ 231.1m] score 8 energy 0.34  CASEOH Celebrated At The Worst Possible Moment
+  [ 239.6m] score 7 energy 0.34  CASEOH Devastated By Cereal Box Insult
+[1/6] Downloading segment 5784s-5818s...
+[2/6] Downloading segment 6620s-6703s...
+[3/6] Downloading segment 7060s-7076s...
+[4/6] Downloading segment 7536s-7595s...
+[5/6] Downloading segment 13866s-13918s...
+[6/6] Downloading segment 14374s-14402s...
+Facecam: cached VOD identity
+Facecam: 5/6 matched; unmatched clips = streamer off-cam -> full frame
+[1/6] Facecam none -> full frame
+[2/6] Facecam matched -> split layout
+[3/6] Facecam matched -> split layout
+[4/6] Facecam matched -> split layout
+[5/6] Facecam matched -> split layout
+[6/6] Facecam matched -> split layout
+Caption pass: groq turbo over 6 segments...
+  arc check 'CASEOH Panicked So Hard He Screamed At His Sc': unverified (trigger 0% 'Oh, oh my God.' | button 50% 'I can't stand you Tanner.') (no cam)
+  arc check 'CASEOH Terrified By New Game Master': VERIFIED (trigger 100% 'Can I have some instructions?' | button 100% 'Who is that?')
+  arc check 'CASEOH Turned Into Alvin And The Chipmunks': unverified (trigger 100% 'I'm lagging?' | button 0% 'Wait, did I have some chipmunk action go')
+  arc check 'CASEOH Had A Complete Meltdown Over Hacking': VERIFIED (trigger 100% 'Turned into a Bitcoin miner.' | button 67% 'That's what I do, buddy.')
+  arc check 'CASEOH Celebrated At The Worst Possible Momen': unverified (trigger 50% 'Oh, my God! Yeah!' | button 0% 'Wrong time to cheer?')
+  arc check 'CASEOH Devastated By Cereal Box Insult': VERIFIED (trigger 60% 'GG. Bro built like a cereal box!' | button 100% 'Bro's built like he's trying to be swole')
+  dropping 'CASEOH Panicked So Hard He Screamed At His Sc' (off-cam/unverified arc)
+  dropping 'CASEOH Turned Into Alvin And The Chipmunks' (unverified arc)
+  dropping 'CASEOH Celebrated At The Worst Possible Momen' (unverified arc)
+[1/3] Rendering short...
+[2/3] Rendering short...[3/3] Rendering short...
+
+  jump-cutting 3 silence(s), -34.4s dead air  jump-cutting 1 silence(s), -7.4s dead air
+
+  smart-cut: 83s -> 17s (1 kept span(s))
+  -> out/2026-07-23_2825075436/03_AI_caseoh-devastated-by-cereal-box-insult.mp4
+  -> out/2026-07-23_2825075436/02_CROWD_caseoh-had-a-complete-meltdown-over-hack.mp4
+  -> out/2026-07-23_2825075436/01_CROWD_caseoh-terrified-by-new-game-master.mp4
+
+Done in 4.5 min. Shorts + titles in: out/2026-07-23_2825075436/
+Review each clip, then upload from the YouTube app/studio.
+=== RERUN done Thu Jul 23 20:41:00 EDT 2026 ===

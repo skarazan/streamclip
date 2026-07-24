@@ -574,10 +574,26 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         # leading kept-spans until under budget — keeps the payoff (the end).
         while (sum(e - s for s, e in ivals) > target + 8 and len(ivals) > 1):
             ivals = ivals[1:]
-        if len(ivals) > 1:
+        # one long unbroken span (wall-to-wall talking, nothing to jump-cut):
+        # keep the tail, where the payoff sits, but never cut past the crowd
+        # peak — that's the moment the viewers clipped.
+        if len(ivals) == 1 and ivals[0][1] - ivals[0][0] > target + 8:
+            s, e = ivals[0]
+            head = e - (target + 8)
+            if m.crowd_peak:
+                head = min(head, max(s, m.crowd_peak - 6.0))
+            ivals = [(head, e)]
+        # apply whenever the kept spans don't cover the whole segment. Gating
+        # this on len(ivals) > 1 silently threw away every single-span cut —
+        # "keep just this 17s window" is smart-cut's most common answer, and
+        # those clips shipped at full length.
+        trimmed = bool(ivals) and (len(ivals) > 1
+                                   or ivals[0][0] > m.start + 0.05
+                                   or ivals[0][1] < m.end - 0.05)
+        if trimmed:
             saved = (m.end - m.start) - sum(e - s for s, e in ivals)
-            print(f"  jump-cutting {len(ivals) - 1} silence(s), "
-                  f"-{saved:.1f}s dead air")
+            cuts = f"{len(ivals) - 1} silence(s)" if len(ivals) > 1 else "to one span"
+            print(f"  jump-cutting {cuts}, -{saved:.1f}s dead air")
             seg = render.cut_silences(
                 seg, [(s - m.start, e - m.start) for s, e in ivals],
                 vod_work / f"seg_{i:02d}_cut.mp4")

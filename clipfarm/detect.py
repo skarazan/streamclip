@@ -229,9 +229,13 @@ snippet. Stay within 20s of the suggestion, 18-40s long, peak in the final
 third. Return a sharper title + hook when you can.
 hook: 3-8 words, sentence case, exactly ONE emotional keyword wrapped in
 *asterisks*, never spoils the punchline.
-Candidates tagged [CROWD GROUND TRUTH: N viewers clipped this] carry a
-strong human prior: do not overrule them on taste ("not that funny" is NOT
-a valid cut). But they are NOT infallible for OUR format — viewers often
+Candidates come from two sources and you are the arbiter: some were clipped
+live by viewers (tagged [CROWD GROUND TRUTH: N viewers clipped this]), the
+rest were found by scoring the transcript. Judge purely on which makes the
+better standalone Short — a moment with no crowd tag CAN and SHOULD outrank
+a crowd-tagged one when it has the stronger trigger/payoff arc.
+Candidates tagged [CROWD GROUND TRUTH] carry a strong human prior: do not
+overrule them on taste alone ("not that funny" is NOT a valid cut). But they are NOT infallible for OUR format — viewers often
 clip for visual gags a captions+facecam short cannot show. CUT a crowd
 candidate when the transcript shows its payoff won't survive our format:
 the humor is a game visual/NPC line with no real streamer reaction beyond

@@ -151,16 +151,29 @@ def _split_filter(segment: Path, cam: tuple[float, float, float, float],
     top_h = _even(H * top_frac)
     bot_h = H - top_h
 
-    # cam crop, widened/shrunk to exactly match the top pane's aspect ratio
+    # cam crop matched to the top pane's aspect by GROWING the deficient
+    # side, never shrinking: shrinking + re-centering sliced the top of the
+    # streamer's head off and zoomed into his mouth. Growing adds
+    # surrounding webcam area instead, which reads naturally.
     fx, fy, fw, fh = cam
     cx, cy, cw, ch = fx * sw, fy * sh, fw * sw, fh * sh
     target_ar = W / top_h
-    if cw / ch > target_ar:
-        cw = ch * target_ar
-    else:
-        ch = cw / target_ar
-    cx = max(0, min(fx * sw + (fw * sw - cw) / 2, sw - cw))
-    cy = max(0, min(fy * sh + (fh * sh - ch) / 2, sh - ch))
+    if cw / ch > target_ar:          # too wide -> grow height
+        grow = cw / target_ar - ch
+        cy -= grow / 2
+        ch += grow
+    else:                             # too tall -> grow width
+        grow = ch * target_ar - cw
+        cx -= grow / 2
+        cw += grow
+    if cw > sw:                       # only now shrink, to fit the source
+        ch *= sw / cw
+        cw = sw
+    if ch > sh:
+        cw *= sh / ch
+        ch = sh
+    cx = max(0, min(cx, sw - cw))
+    cy = max(0, min(cy, sh - ch))
 
     # gameplay: tallest centered crop matching the bottom pane's aspect
     g_ar = W / bot_h

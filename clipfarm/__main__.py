@@ -16,6 +16,9 @@ def main() -> None:
     p.add_argument("--ai-clips", type=int, metavar="M", default=None,
                    help="A/B test: make M of the clips purely AI-chosen "
                         "(whole-VOD LLM scoring), the rest crowd-chosen")
+    p.add_argument("--ai-merge", action="store_true",
+                   help="merge crowd + AI moments into ONE head-to-head "
+                        "judging pass; best clips win on merit, no quotas")
     p.add_argument("--config", help="path to config.yaml")
     args = p.parse_args()
 
@@ -27,6 +30,8 @@ def main() -> None:
         cfg["clips"]["count"] = max(1, args.clips)
     if args.ai_clips is not None:
         cfg["clips"]["ai_count"] = max(0, args.ai_clips)
+    if args.ai_merge:
+        cfg["clips"]["ai_merge"] = True
     run(cfg, vod_url=args.vod)
 
 

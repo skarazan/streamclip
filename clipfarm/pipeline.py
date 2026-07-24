@@ -181,13 +181,36 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                 persona=cfg.get("persona", "generic"), post_bar=6)
         for m in moments:
             m.source = "crowd"
-        if ai_count > 0 and words:
-            print(f"A/B: also scoring the VOD for {ai_count} AI-chosen clips...")
+        if (ai_count > 0 or cfg["clips"].get("ai_merge")) and words:
+            print("Also scoring the VOD for AI-chosen moments...")
             ai = _ai_moments(cfg, words, profile, chat, llm, report, vod_work)
-            # AI picks that don't overlap a crowd pick, best first
             for m in ai:
                 m.source = "ai"
+            # drop AI picks that are the same moment as a crowd pick
+            ai = [a for a in ai
+                  if not any(abs(a.start - c.start) < 45 for c in moments)]
             moments = moments + ai
+            if cfg["clips"].get("ai_merge"):
+                # MERGED JUDGE: one head-to-head pass over BOTH pools — the
+                # AI rates the crowd's moments against its own and the best
+                # win on merit, no quotas. Crowd picks carry their "N viewers
+                # clipped this" evidence into the judging.
+                report("scoring", "judging crowd vs AI moments head-to-head")
+                print(f"Merged judge: {len(moments)} candidates "
+                      f"(crowd + AI) -> head-to-head")
+                moments = detect.rerank_moments(
+                    moments, words, profile, llm["model"],
+                    base_url=llm.get("base_url"),
+                    api_key_env=llm.get("api_key_env"),
+                    streamer=cfg.get("streamer_name", "the streamer"),
+                    fallback_models=llm.get("fallback_models"),
+                    persona=cfg.get("persona", "generic"),
+                    shortlist=20, post_bar=6)
+                won = {}
+                for m in moments:
+                    won[m.source] = won.get(m.source, 0) + 1
+                print(f"  judge kept: {won.get('crowd', 0)} crowd, "
+                      f"{won.get('ai', 0)} AI")
         return words, profile, moments
 
     if words and detect.llm_available(
@@ -277,7 +300,10 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     # then cam-present) has real alternatives — an off-cam or unverified
     # moment gets dropped rather than shipped for lack of a replacement
     want = cfg["clips"]["count"]
-    ai_count = int(cfg["clips"].get("ai_count", 0))
+    # merged mode: the judge already ranked crowd vs AI on merit, so no
+    # per-source quota — best N win outright
+    ai_count = 0 if cfg["clips"].get("ai_merge") else int(
+        cfg["clips"].get("ai_count", 0))
     crowd_want = want - ai_count
 
     def _sel(ms, n):

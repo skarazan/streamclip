@@ -543,6 +543,32 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     report("rendering", f"rendering {len(clips)} clips")
     top_frac = style.get("split_top", 0.42)
 
+    _STOP = {"that", "this", "they", "them", "then", "than", "with", "what",
+             "when", "have", "just", "like", "your", "from", "here", "there",
+             "gonna", "about", "yeah", "okay", "bruh"}
+
+    def _payoff_end(m, ws) -> float | None:
+        """When the button line finishes speaking — the natural out-point.
+        Matched on the quote's distinctive words (the editor writes buttons
+        close to verbatim), taking the LAST hit so a repeated line ends on
+        its final delivery. Never trims past the crowd peak."""
+        if not ws or not m.button_quote:
+            return None
+        toks = {t for t in re.sub(r"[^a-z0-9 ]", " ", m.button_quote.lower()).split()
+                if len(t) > 3 and t not in _STOP}
+        if not toks:
+            return None
+        hit = None
+        for w in ws:
+            if re.sub(r"[^a-z0-9]", "", w.text.lower()) in toks:
+                hit = w.end
+        if hit is None:
+            return None
+        end = min(m.end, hit + 2.0)
+        if m.crowd_peak and end < m.crowd_peak + 1.5:
+            return None
+        return end
+
     def _render_one(i_m_seg_cam):
         i, m, seg, cam = i_m_seg_cam
         src_seg = seg  # the DOWNLOADED file; `seg` gets reassigned when cut
@@ -550,6 +576,13 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         name = f"{i:02d}_{tag}{_slug(m.title)}"
         print(f"[{i}/{len(clips)}] Rendering short...")
         clip_words = cap_words[i - 1] or words
+        # 0) END ON THE PUNCHLINE. Clips ran well past the joke because the
+        # bounds come from the crowd cluster, which keeps rolling after the
+        # payoff. Cut shortly after the last word of the button line.
+        tail = _payoff_end(m, cap_words[i - 1])
+        if tail and m.end - tail > 3.0 and tail - m.start >= 12.0:
+            print(f"  ending on the payoff, -{m.end - tail:.1f}s of tail")
+            m.end = tail
         ass_start, ass_end = m.start, m.end
         # LAYERED CUTTING. 1) silence jump-cut removes dead air but keeps
         # short gaps (NPC sounds/beats live there), guarded by raw loudness.

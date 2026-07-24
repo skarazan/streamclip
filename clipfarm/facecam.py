@@ -25,7 +25,8 @@ _YUNET = _MODELS / "yunet.onnx"
 _SFACE = _MODELS / "sface.onnx"
 
 MATCH_T = 0.363  # SFace cosine match threshold (opencv_zoo reference value)
-DOMINANT_CAM = 0.62  # cam wider than this -> no gameplay left beside it
+DOMINANT_CAM = 0.62   # cam wider than this -> no gameplay left beside it
+DOMINANT_CAM_H = 0.55  # ...or taller: he already fills the picture
 
 
 def _cosine(a: np.ndarray, b: np.ndarray) -> float:
@@ -58,10 +59,14 @@ def _detect_faces_haar(cascade, frame) -> list[np.ndarray]:
 def _expand_to_cam(x, y, w, h, W, H) -> tuple[float, float, float, float]:
     """Expand a head box to a webcam-style crop (head + shoulders, air above),
     returned as fractions of the frame."""
-    cw = w * 2.7
-    ch = h * 3.1
+    # deliberately a touch tighter than a real cam frame: the pane now fits
+    # the crop and blur-fills the rest, so overshooting drags a strip of
+    # gameplay in beside his face (visible, and read as "camera is messed
+    # up"), while undershooting just crops closer and still reads as a cam.
+    cw = w * 2.2
+    ch = h * 2.3
     cx0 = x + w / 2 - cw / 2
-    cy0 = y - h * 0.9
+    cy0 = y - h * 0.6
     cx0 = max(0.0, min(cx0, W - cw))
     cy0 = max(0.0, min(cy0, H - ch))
     cw = min(cw, W)
@@ -313,10 +318,11 @@ def match_segment(video: Path, identity: np.ndarray,
         best = max(close, key=lambda m: max(abs(m[0]["center"][0] - 0.5),
                                             abs(m[0]["center"][1] - 0.5)))
     box = best[0]["box"]
-    # A cam this wide leaves no gameplay strip beside it, so the split would
-    # show the streamer twice — top pane and again inside the bottom one.
-    # Full frame is the honest layout then.
-    if box[2] >= DOMINANT_CAM:
+    # A cam this big leaves no gameplay strip beside it, so the split would
+    # show the streamer twice — top pane and again inside the bottom one —
+    # and detection gets unreliable once his head runs off the frame edge.
+    # He already dominates the picture; full frame is the honest layout.
+    if box[2] >= DOMINANT_CAM or box[3] >= DOMINANT_CAM_H:
         return None
     return box
 

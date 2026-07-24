@@ -151,29 +151,17 @@ def _split_filter(segment: Path, cam: tuple[float, float, float, float],
     top_h = _even(H * top_frac)
     bot_h = H - top_h
 
-    # cam crop matched to the top pane's aspect by GROWING the deficient
-    # side, never shrinking: shrinking + re-centering sliced the top of the
-    # streamer's head off and zoomed into his mouth. Growing adds
-    # surrounding webcam area instead, which reads naturally.
+    # The cam is cropped EXACTLY, then fitted into the pane against a blurred
+    # blow-up of itself. Reshaping the crop to the pane's aspect was the
+    # source of every "camera is messed up": shrinking sliced the top of his
+    # head off, and growing dragged in whatever sat next to the cam — a slab
+    # of gameplay or empty desk parked beside his face.
     fx, fy, fw, fh = cam
     cx, cy, cw, ch = fx * sw, fy * sh, fw * sw, fh * sh
-    target_ar = W / top_h
-    if cw / ch > target_ar:          # too wide -> grow height
-        grow = cw / target_ar - ch
-        cy -= grow / 2
-        ch += grow
-    else:                             # too tall -> grow width
-        grow = ch * target_ar - cw
-        cx -= grow / 2
-        cw += grow
-    if cw > sw:                       # only now shrink, to fit the source
-        ch *= sw / cw
-        cw = sw
-    if ch > sh:
-        cw *= sh / ch
-        ch = sh
+    cw, ch = min(cw, sw), min(ch, sh)
     cx = max(0, min(cx, sw - cw))
     cy = max(0, min(cy, sh - ch))
+    fit_h = (cw / ch) < (W / top_h)   # tall cam -> fit the pane's height
 
     # gameplay: tallest centered crop matching the bottom pane's aspect
     g_ar = W / bot_h
@@ -204,10 +192,15 @@ def _split_filter(segment: Path, cam: tuple[float, float, float, float],
             gw = gh * g_ar
             gx, gy = span_x + (span_w - gw) / 2, (sh - gh) / 2
 
+    ccrop = f"crop={_even(cw)}:{_even(ch)}:{int(cx)}:{int(cy)}"
+    fit = f"scale=-2:{top_h}" if fit_h else f"scale={W}:-2"
     return (
-        f"[0:v]split=2[c][g];"
-        f"[c]crop={_even(cw)}:{_even(ch)}:{int(cx)}:{int(cy)},"
-        f"scale={W}:{top_h}[top];"
+        f"[0:v]split=3[cb][cf][g];"
+        # blurred blow-up of the cam fills whatever the fitted crop leaves —
+        # never neighbouring screen content
+        f"[cb]{ccrop},scale={W}:{top_h},gblur=sigma=24,eq=brightness=-0.06[bg];"
+        f"[cf]{ccrop},{fit}[fg];"
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2[top];"
         f"[g]crop={_even(gw)}:{_even(gh)}:{int(gx)}:{int(gy)},"
         f"scale={W}:{bot_h}[bot];"
         f"[top][bot]vstack"

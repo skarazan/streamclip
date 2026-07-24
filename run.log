@@ -113,3 +113,82 @@ Caption pass: groq turbo over 6 segments...
 Done in 4.5 min. Shorts + titles in: out/2026-07-23_2825075436/
 Review each clip, then upload from the YouTube app/studio.
 === RERUN done Thu Jul 23 20:41:00 EDT 2026 ===
+=== RERUN2 Thu Jul 23 20:42:19 EDT 2026 ===
+pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
+Using VOD: https://www.twitch.tv/videos/2825075436
+Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
+  20164 words, ~4.3h of speech
+Chat replay: 515 density samples, 27728 messages (sampled)
+Crowd ground truth: 472 viewer clips -> 65 moments, using top 15
+Tier A: crowd-first, skipping chunk scoring (15 crowd candidates)
+  editor pass kept 5/15 candidates
+Also scoring the VOD for AI-chosen moments...
+  editor pass kept 5/15 candidates
+Merged judge: 9 candidates (crowd + AI) -> head-to-head
+  editor pass kept 4/9 candidates
+  judge kept: 4 crowd, 0 AI
+Selected 4 clips:
+  [  53.5m] score 8 energy 0.46  CASEOH Would Do Anything For Crab Rangoons
+  [  96.1m] score 9 energy 0.47  CASEOH Panics So Hard He Caused A Tornado Over Tanner
+  [ 125.2m] score 7 energy 0.39  CASEOH Becomes A Hacker And Instantly Regrets It
+  [ 230.8m] score 8 energy 0.31  CASEOH Celebrated At The Absolute WORST Time
+[1/4] Downloading segment 3212s-3246s...
+[2/4] Downloading segment 5769s-5818s...
+[3/4] Downloading segment 7513s-7584s...
+[4/4] Downloading segment 13851s-13918s...
+Facecam: cached VOD identity
+Facecam: 3/4 matched; unmatched clips = streamer off-cam -> full frame
+[1/4] Facecam matched -> split layout
+[2/4] Facecam none -> full frame
+[3/4] Facecam matched -> split layout
+[4/4] Facecam matched -> split layout
+Caption pass: groq turbo over 4 segments...
+  arc check 'CASEOH Would Do Anything For Crab Rangoons': VERIFIED (trigger 80% 'I know I ain't eating Nutella donuts.' | button 100% 'Give me the Crab Rangoons now!')
+  arc check 'CASEOH Panics So Hard He Caused A Tornado Ove': unverified (trigger 50% 'Oh, oh my God. Lord' | button 40% 'I can't stand you Tanner. Bruh!') (no cam)
+  arc check 'CASEOH Becomes A Hacker And Instantly Regrets': unverified (trigger 100% 'I hacked somebody's computer. How do I g' | button 25% 'AAAAAAAHHHHHHHHHHHHHHHHH! WAAAHHHHH! AAA')
+  arc check 'CASEOH Celebrated At The Absolute WORST Time': unverified (trigger 100% 'Wait, I just saw the puppet in there!' | button 0% 'Wrong time to cheer? I thought it was- I')
+  dropping 'CASEOH Panics So Hard He Caused A Tornado Ove' (off-cam/unverified arc)
+[1/3] Rendering short...
+[2/3] Rendering short...[3/3] Rendering short...
+
+  jump-cutting 3 silence(s), -37.3s dead air
+  -> out/2026-07-23_2825075436/03_CROWD_caseoh-celebrated-at-the-absolute-worst-.mp4
+  smart-cut: 70s -> 34s (2 kept span(s))
+  jump-cutting 1 silence(s), -35.7s dead air
+  smart-cut: 34s -> 16s (2 kept span(s))
+  jump-cutting 1 silence(s), -18.3s dead air
+  -> out/2026-07-23_2825075436/01_CROWD_caseoh-would-do-anything-for-crab-rangoo.mp4
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/sabakarazanashvili/streamclip/clipfarm/__main__.py", line 39, in <module>
+    main()
+  File "/Users/sabakarazanashvili/streamclip/clipfarm/__main__.py", line 35, in main
+    run(cfg, vod_url=args.vod)
+  File "/Users/sabakarazanashvili/streamclip/clipfarm/pipeline.py", line 626, in run
+    results = list(ex.map(_render_one,
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py", line 619, in result_iterator
+    yield _result_or_cancel(fs.pop())
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py", line 317, in _result_or_cancel
+    return fut.result(timeout)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sabakarazanashvili/streamclip/clipfarm/pipeline.py", line 597, in _render_one
+    seg = render.cut_silences(
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sabakarazanashvili/streamclip/clipfarm/render.py", line 319, in cut_silences
+    raise RuntimeError(f"silence cut failed: {r.stderr[-2000:]}")
+RuntimeError: silence cut failed: [in#0 @ 0x156731370] Error opening input: No such file or directory
+Error opening input file /Users/sabakarazanashvili/streamclip/work/2825075436/seg_03.mp4.
+Error opening input files: No such file or directory
+
+=== RERUN2 done ===

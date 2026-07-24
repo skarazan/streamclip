@@ -545,6 +545,7 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
 
     def _render_one(i_m_seg_cam):
         i, m, seg, cam = i_m_seg_cam
+        src_seg = seg  # the DOWNLOADED file; `seg` gets reassigned when cut
         tag = f"{m.source.upper()}_" if m.source else ""
         name = f"{i:02d}_{tag}{_slug(m.title)}"
         print(f"[{i}/{len(clips)}] Rendering short...")
@@ -616,8 +617,13 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
             f"PICKED BY: {picked}\n"
             f"WHY: {m.reason}\nSOURCE: {vod_url} @ {m.start:.0f}s\n")
         print(f"  -> {final.relative_to(PROJECT_ROOT)}")
+        # delete the ACTUAL files this clip used. Rebuilding the name from `i`
+        # deleted another thread's input whenever the arc gate dropped a clip:
+        # segments are numbered before the drop, render indices after it, so
+        # clip 3 was deleting seg_03 while clip 2 was still reading it.
         seg.unlink(missing_ok=True)  # keep disk usage low
-        (vod_work / f"seg_{i:02d}.mp4").unlink(missing_ok=True)  # pre-cut original
+        if src_seg != seg:
+            src_seg.unlink(missing_ok=True)  # pre-cut original
         return {"file": str(final), "title": m.title, "hook": m.hook,
                 "score": m.score, "start_s": m.start, "end_s": m.end}
 

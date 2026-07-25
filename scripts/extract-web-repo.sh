@@ -14,10 +14,17 @@ if [ -e "$target" ]; then
 fi
 
 split_commit=$(git -C "$repo_root" subtree split --prefix=web/app HEAD)
-git clone --no-local "$repo_root" "$target"
-git -C "$target" checkout --detach "$split_commit"
-git -C "$target" switch -c main
+temp_branch="codex-web-split-$$"
+cleanup() {
+  git -C "$repo_root" branch -D "$temp_branch" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT INT TERM
+git -C "$repo_root" branch "$temp_branch" "$split_commit"
+git clone --no-local --single-branch --branch "$temp_branch" "$repo_root" "$target"
+git -C "$target" branch -m main
 git -C "$target" remote remove origin
+cleanup
+trap - EXIT INT TERM
 
 echo "Created local web repository at $target"
 echo "Review it, then add a private GitHub origin and a Vercel project."

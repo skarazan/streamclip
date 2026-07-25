@@ -13,6 +13,7 @@ import ClipTimelineEditor from "./ClipTimelineEditor";
 import DashboardAutoRefresh from "./DashboardAutoRefresh";
 import WorkerStatusBanner from "./WorkerStatusBanner";
 import ClipFeedback from "./ClipFeedback";
+import ClipPlayer from "./ClipPlayer";
 
 const s3 = new S3Client({
   region: "auto",
@@ -207,8 +208,7 @@ export default async function Dashboard() {
                       </span>
                     </div>
                   )}
-                  <video src={c.url} controls preload="metadata"
-                         className="rounded-xl w-full aspect-[9/16] object-cover bg-black" />
+                  <ClipPlayer src={c.url} title={c.title} />
                   <ClipTimelineEditor clipId={c.id} />
                   <div className="flex items-start justify-between mt-3 gap-2">
                     <ClipEditor

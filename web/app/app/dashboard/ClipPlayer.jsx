@@ -6,13 +6,19 @@ import { useState } from "react";
 // (~100MB each in Chromium); a grid of always-mounted players was eating
 // >1GB. Nothing loads until the user asks; closing releases it again.
 export default function ClipPlayer({ src, title }) {
-  const [active, setActive] = useState(false);
+  // The URL is captured ONCE, when the user presses play, and never follows
+  // the prop afterwards. The dashboard mints a fresh presigned R2 URL on
+  // every server render, and DashboardAutoRefresh re-renders whenever job
+  // progress changes — so a playing clip had its `src` swapped every few
+  // seconds and the element reloaded mid-playback. Loading several made it
+  // look random because they all reloaded together.
+  const [playing, setPlaying] = useState(null);
 
-  if (!active) {
+  if (!playing) {
     return (
       <button
         type="button"
-        onClick={() => setActive(true)}
+        onClick={() => setPlaying(src)}
         className="group relative block w-full aspect-[9/16] overflow-hidden rounded-xl bg-gradient-to-b from-[#1b1b2b] via-[#101018] to-black"
         aria-label={`Play ${title || "clip"}`}
       >
@@ -33,7 +39,7 @@ export default function ClipPlayer({ src, title }) {
   return (
     <div className="relative">
       <video
-        src={src}
+        src={playing}
         controls
         autoPlay
         playsInline
@@ -42,7 +48,7 @@ export default function ClipPlayer({ src, title }) {
       />
       <button
         type="button"
-        onClick={() => setActive(false)}
+        onClick={() => setPlaying(null)}
         className="absolute right-2 top-2 z-10 rounded-full bg-black/70 px-2 py-0.5 text-xs font-bold text-gray-300 hover:text-white"
         aria-label="Close preview"
       >

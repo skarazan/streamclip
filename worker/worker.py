@@ -452,6 +452,13 @@ def build_job_config(user: dict, job: dict) -> dict:
     cfg["clips"]["count"] = snapshot.get(
         "clips_per_stream", user.get("clips_per_stream", 3))
     cfg["streamer_name"] = user.get("twitch_login", "the streamer")
+    # config.yaml ships the founder's personal persona ("caseoh"). Without
+    # this line every customer's VOD was scored against CaseOh's rubric and
+    # titled from his channel data — the prompt says "Include CASEOH in
+    # titles" — and every user shared one `moments.caseoh.json` cache slot per
+    # VOD. Service jobs get the streamer-agnostic rubric; the named personas
+    # stay available for local runs via config.<streamer>.yaml.
+    cfg["persona"] = "generic"
     # Jobs use the dashboard template captured when the user pressed Run.
     # Falling back to the live profile keeps old pre-snapshot jobs compatible.
     style_profile = snapshot.get(

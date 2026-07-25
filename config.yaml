@@ -20,6 +20,10 @@ clips:
   # CPU-only bounded overlap. These caps improve utilization without creating
   # extra Modal containers or an unbounded compute bill.
   download_workers: 3
+  # Fetch 6s of the lowest rendition before transcribing/scoring. Twitch
+  # refuses media to some egress IPs; without this the job pays a full LLM
+  # scoring pass before discovering it can't download a single frame.
+  media_precheck: true
   render_workers: 2
 
 # Whisper transcription (runs locally, no API cost)

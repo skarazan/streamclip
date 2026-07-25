@@ -561,6 +561,7 @@ def process(job: dict) -> None:
                                   "detail": "stream is still live — waiting for it to end"}})
             print(f"{job['id']}: VOD still live, deferred 45min")
             return
+        job["_vod_duration_s"] = info.get("duration_s") or 0.0
     except Exception:
         pass  # metadata probe is advisory; proceed if it can't tell
 
@@ -709,6 +710,10 @@ def process(job: dict) -> None:
 
     cfg["_progress"] = update_root_progress
     cfg["_clip_ready"] = publish_ready
+    # The worker already paid for `yt-dlp -J` above; handing the duration over
+    # keeps the media precheck from repeating that call on every job.
+    if job.get("_vod_duration_s"):
+        cfg["_vod_duration_s"] = job["_vod_duration_s"]
     update_root_progress("finding_vod")
     result = pipeline.run(cfg, vod_url=job["vod_url"])
     update_root_progress("uploading", "finalizing the batch")

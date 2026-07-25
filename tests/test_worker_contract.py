@@ -1,9 +1,73 @@
+import pathlib
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
 import httpx
 
+from clipfarm import fetch
 from worker import worker
+
+
+class SegmentDownloadTests(unittest.TestCase):
+    """Twitch serves stream-less husks to some egress IPs.
+
+    `--download-sections` forces yt-dlp to hand the playlist to the ffmpeg
+    downloader, which has no per-fragment retry and exits 0 after writing an
+    empty container. Seven jobs on one VOD failed this way, each burning a
+    full LLM scoring pass first.
+    """
+
+    def _husk(self, path):
+        path.write_bytes(b"\x00" * 262)   # the size actually observed
+        return path
+
+    def test_husk_is_rejected_despite_a_zero_exit_code(self):
+        with tempfile.TemporaryDirectory() as td:
+            husk = self._husk(pathlib.Path(td) / "seg.mp4")
+            with self.assertRaises(fetch.SegmentUnavailable):
+                fetch._validate_media(
+                    husk, fetch._MIN_SEGMENT_BYTES, need_video=True)
+
+    def test_fragment_fallback_runs_when_the_ffmpeg_route_husks(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = pathlib.Path(td) / "seg.mp4"
+            rescued = []
+
+            def husking(vod_url, start, end, target, quality):
+                return self._husk(target)
+
+            def fragments(vod_url, start, end, target, quality, tries=3):
+                rescued.append((start, end))
+                target.write_bytes(b"\x00" * fetch._MIN_SEGMENT_BYTES * 2)
+                return target
+
+            with (
+                patch.object(fetch, "_ytdlp_segment", husking),
+                patch.object(fetch, "_fragment_segment", fragments),
+                patch.object(fetch, "_has_video_stream", return_value=True),
+                patch.object(fetch.time, "sleep", lambda *_: None),
+            ):
+                fetch.download_segment(
+                    "https://twitch.tv/videos/1", 10.0, 35.0, dest, "worst")
+            self.assertEqual(rescued, [(10.0, 35.0)])
+
+    def test_every_route_dead_raises_and_leaves_no_husk_behind(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = pathlib.Path(td) / "seg.mp4"
+            dead = fetch.SegmentUnavailable("refused")
+
+            with (
+                patch.object(fetch, "_ytdlp_segment",
+                             lambda *a, **k: self._husk(a[3])),
+                patch.object(fetch, "_fragment_segment", side_effect=dead),
+                patch.object(fetch.time, "sleep", lambda *_: None),
+            ):
+                with self.assertRaises(fetch.SegmentUnavailable):
+                    fetch.download_segment(
+                        "https://twitch.tv/videos/1", 10.0, 35.0, dest, "worst")
+            # a leftover husk is what broke captions, facecam and render
+            self.assertFalse(dest.exists())
 
 
 class AdminFlagTests(unittest.TestCase):

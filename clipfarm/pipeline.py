@@ -344,6 +344,24 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     vod_work = work / vod_id
     vod_work.mkdir(exist_ok=True)
 
+    # 1.5 Can we actually get video? Segment download is step 7, after
+    # transcription and the paid LLM scoring pass, so a VOD whose media Twitch
+    # refuses used to cost ~13 minutes and a full scoring bill before failing.
+    # Six seconds of the lowest rendition answers it now. Skippable for local
+    # experiments that only need the transcript.
+    if cfg["clips"].get("media_precheck", True):
+        report("finding_vod", "checking VOD media is fetchable",
+               substage="media_precheck")
+        duration_s = float(cfg.get("_vod_duration_s") or 0.0)
+        if not duration_s:
+            duration_s = fetch.vod_info(vod_url).get("duration_s") or 0.0
+        ok, why = fetch.media_reachable(vod_url, duration_s)
+        if not ok:
+            raise SystemExit(
+                "Twitch is not serving this VOD's video to this machine "
+                f"(probe failed before any paid work): {why}")
+        print("Media precheck: video is fetchable")
+
     words, profile, moments = analyze_vod(cfg, vod_url, vod_work, report)
     _raw_cache = vod_work / "loudness_raw.npy"
     import numpy as _np
@@ -414,21 +432,19 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         seg = vod_work / f"probe_{i:02d}.mp4"
         print(f"[{i}/{len(clips)}] Downloading segment "
               f"{m.start:.0f}s-{m.end:.0f}s...")
-        got = fetch.download_segment(
-            vod_url, m.start, m.end, seg,
-            cfg["clips"].get("analysis_quality", "best[height<=360]"))
-        # Twitch VODs can have unavailable ranges (deleted/expired sections);
-        # yt-dlp then writes a stream-less husk (observed: 262 bytes). Every
-        # downstream stage chokes on it differently — captions, facecam,
-        # render — so reject the candidate HERE, once, and let the bench
-        # refill. A real multi-second segment is never this small.
-        if not got.exists() or got.stat().st_size < 50_000:
-            print(f"  ! segment {i}: unusable download "
-                  f"({got.stat().st_size if got.exists() else 0} bytes — "
-                  f"VOD range unavailable) -> dropping candidate")
-            got.unlink(missing_ok=True)
+        # download_segment now retries the ffmpeg route and then refetches the
+        # covering HLS fragments itself before giving up, and validates the
+        # container rather than trusting an exit code. A raise here means the
+        # range is genuinely unavailable, not that one fragment was refused —
+        # so dropping the candidate and letting the bench refill is correct.
+        try:
+            return fetch.download_segment(
+                vod_url, m.start, m.end, seg,
+                cfg["clips"].get("analysis_quality", "best[height<=360]"))
+        except fetch.SegmentUnavailable as e:
+            print(f"  ! segment {i}: {e} -> dropping candidate")
+            seg.unlink(missing_ok=True)
             return None
-        return got
 
     report("clipping", f"downloading {len(clips)} candidate moments",
            substage="probe_download")
@@ -828,10 +844,19 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
                 "rendering",
                 f"{len(results)}/{want} ready — fetching final-quality winner",
                 substage="master_download")
-            master = fetch.download_segment(
-                vod_url, m.start, m.end,
-                vod_work / f"master_c{cand_i + 1:02d}.mp4",
-                cfg["clips"]["quality"])
+            try:
+                master = fetch.download_segment(
+                    vod_url, m.start, m.end,
+                    vod_work / f"master_c{cand_i + 1:02d}.mp4",
+                    cfg["clips"]["quality"])
+            except fetch.SegmentUnavailable as e:
+                # The probe for this range downloaded fine, so a refusal at
+                # final quality is this rendition/range, not the whole VOD.
+                # Drop the candidate and let the bench refill instead of
+                # failing a job that already has verified alternatives.
+                print(f"  ! master for candidate {cand_i + 1}: {e} -> skipping")
+                probe.unlink(missing_ok=True)
+                return None
             probe.unlink(missing_ok=True)
             return cand_i, m, master, cam, source_arc
 
@@ -839,7 +864,9 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         # and the following encodes. We never prepare the rest of the bench
         # until a QA failure proves that a refill is needed.
         with ThreadPoolExecutor(max_workers=len(wave)) as pool:
-            prepared = list(pool.map(_master, wave))
+            prepared = [p for p in pool.map(_master, wave) if p is not None]
+        if not prepared:
+            continue
         with ThreadPoolExecutor(max_workers=len(wave)) as pool:
             futures = {
                 pool.submit(

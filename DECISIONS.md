@@ -331,3 +331,51 @@ default, unchanged behaviour). It applies to chunk scoring and smart-cut only;
 the editor/judge pass keeps full reasoning. One chunk is not evidence about
 selection quality — A/B a full Tier-C VOD against `progress.llm_usage` before
 changing the default.
+
+## 2026-07-25 — The husk was a missing retry, not a blocked IP
+
+Seven jobs on VOD 2825824257 (maj0r, a Tier-C target customer) failed, burning
+107 min of wall time, $0.78 of Modal and 41 min of paid LLM scoring. The
+recorded cause was "Twitch blocks Modal's datacenter IP for VOD media". The
+evidence does not support that:
+
+- the VOD is healthy — every rendition, `forbidden: false`, no DRM;
+- `Audio_Only` for the SAME VOD downloaded fine FROM MODAL (107s, 46s);
+- video segments downloaded fine from Modal the day before on another VOD;
+- from a residential IP, 8 segments at the pipeline's own concurrency took
+  13 seconds with zero husks.
+
+The two download paths use different downloaders. `download_audio` passes
+`--downloader m3u8:native`, so yt-dlp fetches each fragment and retries it.
+`download_segment` passes `--download-sections`, which forces the FFMPEG
+downloader regardless of `--downloader` (verified: "Invoking ffmpeg
+downloader"). ffmpeg's HLS reader has no per-fragment retry, so `--retries 5`
+on that call governs a downloader that never runs, and one refused fragment is
+fatal. ffmpeg then writes a stream-less container and **exits 0**, so the husk
+propagated as success.
+
+CloudFront's refusals to datacenter egress are intermittent. Retrying is the
+whole fix.
+
+Decision:
+
+- `download_segment` retries the ffmpeg route, then falls back to fetching the
+  covering HLS fragments over plain HTTP with per-fragment retries, byte-
+  concatenating the fMP4 init + media segments and re-cutting to exact bounds;
+- every media download is validated (size + a real video stream) before it
+  counts as success — an exit code is not evidence;
+- failures raise `SegmentUnavailable` and leave no file behind, instead of
+  handing a husk to captions, facecam and render;
+- a 6-second media precheck runs BEFORE transcription and scoring.
+
+Risks and containment:
+
+- The fallback re-encodes, so it is slower than a keyframe-exact section cut;
+  it only runs after the fast path has already failed.
+- A master download refused at final quality now drops that candidate and
+  refills from the bench rather than failing a job with verified alternatives.
+- The precheck costs ~2s per job and reuses the duration the worker already
+  fetched, so it adds no extra `yt-dlp -J` call.
+
+The residential-proxy / customer-upload / official-access decision stays open,
+but it is no longer on the critical path.

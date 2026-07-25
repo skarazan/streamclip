@@ -145,7 +145,7 @@ def _even(v: float) -> int:
 
 
 def _split_filter(segment: Path, cam: tuple[float, float, float, float],
-                  top_frac: float) -> str:
+                  top_frac: float, source: str = "0:v") -> str:
     """Facecam on top, gameplay below. cam = (x,y,w,h) fractions of source."""
     sw, sh = _dims(segment)
     top_h = _even(H * top_frac)
@@ -195,7 +195,7 @@ def _split_filter(segment: Path, cam: tuple[float, float, float, float],
     ccrop = f"crop={_even(cw)}:{_even(ch)}:{int(cx)}:{int(cy)}"
     fit = f"scale=-2:{top_h}" if fit_h else f"scale={W}:-2"
     return (
-        f"[0:v]split=3[cb][cf][g];"
+        f"[{source}]split=3[cb][cf][g];"
         # blurred blow-up of the cam fills whatever the fitted crop leaves —
         # never neighbouring screen content
         f"[cb]{ccrop},scale={W}:{top_h},gblur=sigma=24,eq=brightness=-0.06[bg];"
@@ -303,8 +303,12 @@ def cut_silences(segment: Path, keep: list[tuple[float, float]],
         ffmpeg_path(), "-y", "-v", "error",
         "-i", str(segment),
         "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
-        "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-        "-c:a", "aac", "-b:a", "160k",
+        "-fps_mode", "cfr", "-r", "30",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2",
+        "-video_track_timescale", "30000",
+        "-movflags", "+faststart",
         str(dest),
     ]
     r = subprocess.run(cmd, capture_output=True, text=True)
@@ -313,9 +317,127 @@ def cut_silences(segment: Path, keep: list[tuple[float, float]],
     return dest
 
 
+def render_editor_proxy(
+        segment: Path, dest: Path,
+        cam: tuple[float, float, float, float] | None = None,
+        top_frac: float = 0.42, crop: str = "center") -> Path:
+    """Fast continuous 360x640 proxy for interactive timing edits.
+
+    Layout is locked to the final 9:16 composition, but captions/hooks stay in
+    the browser so timeline changes require no encode. One-second keyframes
+    make cut-to-cut seeking responsive.
+    """
+    pw, ph = 360, 640
+    sw, sh = _dims(segment)
+    if cam:
+        top_h = _even(ph * top_frac)
+        bot_h = ph - top_h
+        fx, fy, fw, fh = cam
+        cx, cy = max(0, int(fx * sw)), max(0, int(fy * sh))
+        cw, ch = max(2, int(fw * sw)), max(2, int(fh * sh))
+        cw, ch = min(cw, sw - cx), min(ch, sh - cy)
+        g_ar = pw / bot_h
+        gw, gh = sh * g_ar, sh
+        if gw > sw:
+            gw, gh = sw, sw / g_ar
+        gx, gy = (sw - gw) / 2, (sh - gh) / 2
+        vf = (
+            f"[0:v]split=2[c][g];"
+            f"[c]crop={cw}:{ch}:{cx}:{cy},"
+            f"scale={pw}:{top_h}:force_original_aspect_ratio=decrease,"
+            f"pad={pw}:{top_h}:(ow-iw)/2:(oh-ih)/2:black[top];"
+            f"[g]crop={_even(gw)}:{_even(gh)}:{_even(gx)}:{_even(gy)},"
+            f"scale={pw}:{bot_h}[bot];"
+            f"[top][bot]vstack,fps=30,setsar=1[v]"
+        )
+    else:
+        if crop == "left":
+            x = 0
+        elif crop == "right":
+            x = max(0, sw - sh * 9 / 16)
+        else:
+            x = max(0, (sw - sh * 9 / 16) / 2)
+        vf = (
+            f"[0:v]crop={_even(sh * 9 / 16)}:{sh}:{_even(x)}:0,"
+            f"scale={pw}:{ph},fps=30,setsar=1[v]"
+        )
+    cmd = [
+        ffmpeg_path(), "-y", "-v", "error", "-i", str(segment),
+        "-filter_complex", vf, "-map", "[v]", "-map", "0:a:0",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
+        "-pix_fmt", "yuv420p", "-g", "30", "-keyint_min", "30",
+        "-sc_threshold", "0", "-r", "30",
+        "-c:a", "aac", "-b:a", "96k", "-ar", "48000",
+        "-video_track_timescale", "30000", "-movflags", "+faststart",
+        str(dest),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"editor proxy failed: {r.stderr[-2000:]}")
+    return dest
+
+
+def audio_waveform_peaks(media: Path, bins: int = 600) -> list[float]:
+    """Return normalized mono audio peaks for the browser timeline."""
+    import numpy as np
+
+    cmd = [
+        ffmpeg_path(), "-v", "error", "-i", str(media),
+        "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1",
+    ]
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0 or not result.stdout:
+        return []
+    samples = np.abs(
+        np.frombuffer(result.stdout, dtype=np.int16).astype(np.float32))
+    if not len(samples):
+        return []
+    edges = np.linspace(0, len(samples), bins + 1, dtype=int)
+    peaks = np.array([
+        float(samples[edges[i]:edges[i + 1]].max())
+        if edges[i + 1] > edges[i] else 0.0
+        for i in range(bins)
+    ], dtype=np.float32)
+    # A percentile scale keeps ordinary speech legible when one scream peaks.
+    scale = max(1.0, float(np.percentile(peaks, 95)))
+    normalized = np.sqrt(np.clip(peaks / scale, 0, 1))
+    return [round(float(value), 3) for value in normalized]
+
+
+def _opening_filter(effect: str) -> str:
+    """A restrained first-second motion pattern on the completed 9:16 frame.
+
+    zoompan runs after layout/captions so every template behaves the same for
+    split and full-frame clips. Effects settle to 1.0 rather than looping;
+    their job is to catch the first glance, not distract from the story.
+    """
+    center = "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+    if effect == "punch_zoom":
+        z = "z='if(lte(on,18),1.12-0.12*on/18,1)'"
+        return f",fps=30,zoompan={z}:{center}:d=1:s={W}x{H}:fps=30,setsar=1"
+    if effect == "impact":
+        z = ("z='if(lte(on,3),1+0.08*on/3,"
+             "if(lte(on,18),1.08-0.08*(on-3)/15,1))'")
+        return f",fps=30,zoompan={z}:{center}:d=1:s={W}x{H}:fps=30,setsar=1"
+    if effect == "drift_pan":
+        z = "z='if(lte(on,24),1.06-0.06*on/24,1)'"
+        x = "x='if(lte(on,24),(iw-iw/zoom)*(1-on/24),0)'"
+        return (f",fps=30,zoompan={z}:{x}:y='ih/2-(ih/zoom/2)':"
+                f"d=1:s={W}x{H}:fps=30,setsar=1")
+    return ""
+
+
 def render_short(segment: Path, ass_file: Path, dest: Path, crop: str = "center",
                  cam: tuple[float, float, float, float] | None = None,
-                 top_frac: float = 0.42, brand: str = "") -> Path:
+                 top_frac: float = 0.42, brand: str = "",
+                 opening_effect: str = "clean",
+                 keep: list[tuple[float, float]] | None = None) -> Path:
+    """Render a final 9:16 short.
+
+    ``keep`` contains source-relative intervals. When supplied, trimming,
+    concatenation, layout, captions and encoding happen in one ffmpeg graph.
+    This avoids the old cut_silences intermediate and its second H.264 encode.
+    """
     if crop == "left":
         x = "0"
     elif crop == "right":
@@ -324,18 +446,71 @@ def render_short(segment: Path, ass_file: Path, dest: Path, crop: str = "center"
         x = "(iw-ih*9/16)/2"
     # escape path for the ass filter (colons, quotes)
     ass_path = str(ass_file).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    trimmed = bool(keep)
+    source_label = "cutv" if trimmed else "0:v"
     if cam:
-        vf = _split_filter(segment, cam, top_frac) + f",ass={ass_path}"
+        vf = _split_filter(segment, cam, top_frac, source=source_label)
+        vf += f",setsar=1,ass={ass_path}"
     else:
-        vf = f"crop=ih*9/16:ih:{x}:0,scale={W}:{H},ass={ass_path}"
+        vf = (f"[{source_label}]crop=ih*9/16:ih:{x}:0,"
+              f"scale={W}:{H},setsar=1,ass={ass_path}" if trimmed else
+              f"crop=ih*9/16:ih:{x}:0,scale={W}:{H},setsar=1,ass={ass_path}")
     if brand:
         vf += "," + _brand_drawtext(brand)
+    vf += _opening_filter(opening_effect)
     cmd = [
         ffmpeg_path(), "-y", "-v", "error",
         "-i", str(segment),
-        "-vf", vf,
+    ]
+    if opening_effect == "impact":
+        # Generated locally: no licensed sound asset or external dependency.
+        cmd += [
+            "-f", "lavfi", "-t", "0.32", "-i",
+            "sine=frequency=70:sample_rate=48000",
+        ]
+    if trimmed:
+        parts, pads = [], []
+        for i, (start, end) in enumerate(keep or []):
+            parts.append(
+                f"[0:v]trim=start={start:.3f}:end={end:.3f},"
+                f"setpts=PTS-STARTPTS[v{i}];"
+                f"[0:a]atrim=start={start:.3f}:end={end:.3f},"
+                f"asetpts=PTS-STARTPTS,"
+                f"aresample=async=1:first_pts=0[a{i}];")
+            pads.append(f"[v{i}][a{i}]")
+        graph = ("".join(parts) + "".join(pads)
+                 + f"concat=n={len(keep or [])}:v=1:a=1[cutv][cuta];"
+                 + vf + "[outv];")
+        if opening_effect == "impact":
+            graph += (
+                "[cuta]aresample=async=1:first_pts=0[base];"
+                "[1:a]afade=t=out:st=0.04:d=0.25,volume=0.16[sfx];"
+                "[base][sfx]amix=inputs=2:duration=first:"
+                "dropout_transition=0:normalize=0[outa]")
+        else:
+            graph += "[cuta]aresample=async=1:first_pts=0[outa]"
+        cmd += ["-filter_complex", graph, "-map", "[outv]", "-map", "[outa]"]
+    else:
+        cmd += ["-vf", vf]
+    cmd += [
+        "-fps_mode", "cfr", "-r", "30",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-        "-c:a", "aac", "-b:a", "160k",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2",
+    ]
+    if opening_effect == "impact" and not trimmed:
+        cmd += [
+            "-filter_complex",
+            "[0:a]aresample=async=1:first_pts=0[base];"
+            "[1:a]afade=t=out:st=0.04:d=0.25,volume=0.16[sfx];"
+            "[base][sfx]amix=inputs=2:duration=first:"
+            "dropout_transition=0:normalize=0[a]",
+            "-map", "0:v:0", "-map", "[a]",
+        ]
+    elif not trimmed:
+        cmd += ["-af", "aresample=async=1:first_pts=0"]
+    cmd += [
+        "-video_track_timescale", "30000",
         "-movflags", "+faststart",
         str(dest),
     ]

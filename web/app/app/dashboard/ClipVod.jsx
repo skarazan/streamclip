@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export default function ClipVod() {
+const CLIP_COUNT_STORAGE_KEY = "streamclip.clips_per_stream";
+
+export default function ClipVod({ titleStrategy, openingEffect }) {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -17,7 +19,14 @@ export default function ClipVod() {
       const r = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vod_url: url }),
+        // Snapshot the visible picker value into the job itself. This avoids
+        // a fast "pick 8, then run" click racing the background settings save.
+        body: JSON.stringify({
+          vod_url: url,
+          clips_per_stream: Number(
+            localStorage.getItem(CLIP_COUNT_STORAGE_KEY)
+          ),
+        }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -35,6 +44,14 @@ export default function ClipVod() {
 
   return (
     <div className="rounded-2xl p-5 mb-10 border border-[#23233a] bg-[#12121a]">
+      <div className="flex flex-wrap gap-2 mb-3 text-[10px] font-black uppercase tracking-wide">
+        <span className="rounded-full border border-[#2e2e4a] px-2.5 py-1 text-purple-300">
+          Title · {String(titleStrategy).replace("_", " ")}
+        </span>
+        <span className="rounded-full border border-[#2e2e4a] px-2.5 py-1 text-purple-300">
+          Open · {String(openingEffect).replace("_", " ")}
+        </span>
+      </div>
       <form onSubmit={submit} className="flex flex-col sm:flex-row gap-3">
         <input
           type="url"

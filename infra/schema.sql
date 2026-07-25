@@ -7,7 +7,7 @@ create table users (
   yt_channel_id text,
   plan text not null default 'trial',          -- trial | starter | churned
   credits int not null default 2,              -- trial = 2 VOD credits
-  clips_per_stream int not null default 3,
+  clips_per_stream int not null default 5,
   auto_clip boolean not null default true,
   style_profile jsonb not null default '{}',   -- renderer style overrides
   created_at timestamptz not null default now()
@@ -19,6 +19,7 @@ create table jobs (
   vod_url text not null,
   status text not null default 'queued',       -- queued|running|done|failed
   run_after timestamptz not null default now(),-- EventSub sets now()+2h
+  progress jsonb not null default '{}',        -- stage + immutable run settings
   error text,
   worker_id text,
   started_at timestamptz,
@@ -57,7 +58,11 @@ returns setof jobs language sql as $$
   where id = (
     select id from jobs
     where status='queued' and run_after <= now()
-    order by created_at
+    -- Revisions and editor-source preparation are short interactive work.
+    -- Put them ahead of the next full VOD without adding another container or
+    -- increasing peak compute. Running VODs are never preempted.
+    order by ((progress->>'kind') in ('clip_edit', 'clip_source')) desc,
+             created_at
     for update skip locked
     limit 1
   )

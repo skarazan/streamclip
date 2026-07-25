@@ -15,6 +15,7 @@ import json
 import os
 import socket
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -24,6 +25,28 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from clipfarm import pipeline  # noqa: E402
 from clipfarm.config import load_config  # noqa: E402
+
+
+def _load_local_env() -> None:
+    """Make direct local worker commands self-contained.
+
+    Modal supplies real environment variables, so this is a no-op there.
+    Local dashboard runs load the gitignored project .env without requiring a
+    human to source it in a terminal first.
+    """
+    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if os.environ.get("SUPABASE_URL") or not env_file.exists():
+        return
+    for raw in env_file.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(
+            key, value.strip().strip('"').strip("'"))
+
+
+_load_local_env()
 
 WORKER_ID = os.environ.get("WORKER_ID", socket.gethostname())
 POLL = int(os.environ.get("POLL_SECONDS", "30"))
@@ -81,12 +104,214 @@ def upload_r2(local: Path, key: str) -> None:
                    ExtraArgs={"ContentType": "video/mp4"})
 
 
+def download_r2(key: str, local: Path) -> Path:
+    import boto3
+    s3 = boto3.client(
+        "s3", endpoint_url=os.environ["R2_ENDPOINT"],
+        aws_access_key_id=os.environ["R2_KEY"],
+        aws_secret_access_key=os.environ["R2_SECRET"])
+    local.parent.mkdir(parents=True, exist_ok=True)
+    s3.download_file(os.environ["R2_BUCKET"], key, str(local))
+    return local
+
+
+def cached_cam(vod_url: str, segment: Path, fallback=None):
+    if fallback:
+        return tuple(fallback)
+    try:
+        import numpy as np
+        from clipfarm import facecam
+        vod_id = vod_url.rstrip("/").rsplit("/", 1)[-1]
+        cam_cache = (Path(__file__).resolve().parent.parent /
+                     "work" / vod_id / "cam_box.json")
+        cached = json.loads(cam_cache.read_text())
+        if cached.get("emb"):
+            matched = facecam.match_segment(segment, np.array(cached["emb"]))
+            if matched:
+                return matched
+        if cached.get("pos_box"):
+            return tuple(cached["pos_box"])
+    except Exception:
+        pass
+    return None
+
+
+def get_clip(clip_id: str, user_id: str) -> dict:
+    rows = sb("GET", f"/rest/v1/clips?id=eq.{clip_id}&user_id=eq.{user_id}").json()
+    if not rows:
+        raise RuntimeError("clip not found")
+    return rows[0]
+
+
+def process_clip_source(job: dict) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from clipfarm import fetch, render, transcribe
+    p = job.get("progress") or {}
+    clip = get_clip(p["clip_id"], job["user_id"])
+    user = get_user(job["user_id"])
+    cfg = load_config()
+    style = cfg["style"]
+    for k, v in (user.get("style_profile") or {}).items():
+        if isinstance(v, dict) and isinstance(style.get(k), dict):
+            style[k].update(v)
+        else:
+            style[k] = v
+    work = Path(__file__).resolve().parent.parent / "work" / "edits" / job["id"]
+    work.mkdir(parents=True, exist_ok=True)
+    source = fetch.download_segment(
+        job["vod_url"], float(p["source_start"]), float(p["source_end"]),
+        work / "source_360.mp4", "best[height<=360]")
+    cam = cached_cam(job["vod_url"], source, (p.get("recipe") or {}).get("cam"))
+    proxy = render.render_editor_proxy(
+        source, work / "editor_9x16.mp4", cam=cam,
+        top_frac=style.get("split_top", .42),
+        crop=style.get("crop", "center"))
+    waveform = render.audio_waveform_peaks(source)
+    key = f"{job['user_id']}/{clip['id']}/editor/source-{job['id']}.mp4"
+    upload_r2(proxy, key)
+    ready = {**p, "stage": "done", "proxy_key": key,
+             "proxy_version": 3,
+             "proxy_width": 360, "proxy_height": 640,
+             "waveform": waveform,
+             "cam": list(cam) if cam else None,
+             "recipe": {
+                 **(p.get("recipe") or {}),
+                 "cam": list(cam) if cam else None,
+             }}
+    sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}", json={
+        "status": "done", "finished_at": "now()",
+        "progress": ready,
+    })
+
+    # The UI is already usable. Prepare final-export inputs concurrently so
+    # pressing Export later does not redownload or retranscribe the segment.
+    def prepare_master():
+        master = fetch.download_segment(
+            job["vod_url"], float(p["source_start"]), float(p["source_end"]),
+            work / "source_1080.mp4", cfg["clips"]["quality"])
+        master_key = (
+            f"{job['user_id']}/{clip['id']}/editor/master-{job['id']}.mp4")
+        upload_r2(master, master_key)
+        return master_key
+
+    def prepare_words():
+        ctx = f"Twitch gaming stream by {user.get('twitch_login', 'a streamer')}."
+        try:
+            ws = transcribe.transcribe_clips_groq(
+                [(source, float(p["source_start"]))], context=ctx)[0]
+            return [{"start": w.start, "end": w.end, "text": w.text} for w in ws]
+        except Exception:
+            return []
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            master_future = pool.submit(prepare_master)
+            words_future = pool.submit(prepare_words)
+            master_key = master_future.result()
+            words = words_future.result()
+        ready.update({"master_key": master_key, "transcript": words})
+        sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
+           json={"progress": ready})
+    except Exception as e:
+        ready["cache_warning"] = str(e)[:240]
+        sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
+           json={"progress": ready})
+    for f in work.glob("*"):
+        f.unlink(missing_ok=True)
+
+
+def process_clip_edit(job: dict) -> None:
+    from clipfarm import fetch, quality, render, transcribe
+    p = job.get("progress") or {}
+    clip = get_clip(p["clip_id"], job["user_id"])
+    user = get_user(job["user_id"])
+    cfg = load_config()
+    style = cfg["style"]
+    for k, v in (p.get("style_profile") or user.get("style_profile") or {}).items():
+        if isinstance(v, dict) and isinstance(style.get(k), dict):
+            style[k].update(v)
+        else:
+            style[k] = v
+    start, end = float(p["source_start"]), float(p["source_end"])
+    keep = [[max(start, float(a)), min(end, float(b))]
+            for a, b in p["keep_intervals"] if float(b) > float(a)]
+    keep = [x for x in keep if x[1] > x[0]]
+    if not keep:
+        raise RuntimeError("edit removes the entire clip")
+    work = Path(__file__).resolve().parent.parent / "work" / "edits" / job["id"]
+    work.mkdir(parents=True, exist_ok=True)
+    source_job = None
+    if p.get("source_job_id"):
+        rows = sb("GET", f"/rest/v1/jobs?id=eq.{p['source_job_id']}").json()
+        source_job = rows[0] if rows else None
+    source_progress = (source_job or {}).get("progress") or {}
+    media_start = start
+    if source_progress.get("master_key"):
+        source = download_r2(
+            source_progress["master_key"], work / "source.mp4")
+        media_start = float(source_progress["source_start"])
+    else:
+        source = fetch.download_segment(
+            job["vod_url"], start, end, work / "source.mp4",
+            cfg["clips"]["quality"])
+    if source_progress.get("transcript"):
+        words = [transcribe.Word(**w) for w in source_progress["transcript"]
+                 if start <= float(w["start"]) < end]
+    else:
+        ctx = f"Twitch gaming stream by {cfg.get('streamer_name', 'a streamer')}."
+        try:
+            words = transcribe.transcribe_clips_groq([(source, start)], context=ctx)[0]
+        except Exception:
+            words = transcribe.transcribe_clips(
+                [(source, start)], cfg["transcribe"]["caption_model"],
+                cfg["transcribe"]["compute_type"])[0]
+    # Final export uses one ffmpeg graph for cuts + layout + captions. The old
+    # bounded/cut intermediates encoded the same revision up to three times.
+    relative = [(a - media_start, b - media_start) for a, b in keep]
+    words = pipeline.detect.remap_words(words, keep)
+    ass_start, ass_end = 0.0, sum(b-a for a, b in keep)
+    ass = render.build_ass(
+        words, ass_start, ass_end, style, work / "captions.ass",
+        hook=p.get("hook") or clip.get("hook") or "",
+        hook_pos=style.get("split_top", .42))
+    cam = cached_cam(job["vod_url"], source, p.get("cam"))
+    final = render.render_short(
+        source, ass, work / "final.mp4", style.get("crop", "center"),
+        cam=cam, top_frac=style.get("split_top", .42),
+        opening_effect=style.get("opening_effect", "punch_zoom"),
+        keep=relative)
+    expected = sum(b-a for a, b in keep)
+    qa = quality.inspect_media(
+        final, expected_duration=expected, max_duration=90.0)
+    if not qa.passed:
+        raise RuntimeError("revision QA failed: " + "; ".join(qa.errors))
+    key = f"{job['user_id']}/{clip['id']}/revisions/{job['id']}.mp4"
+    upload_r2(final, key)
+    if not p.get("validation"):
+        sb("PATCH", f"/rest/v1/clips?id=eq.{clip['id']}", json={
+            "r2_key": key, "start_s": start, "end_s": end,
+        })
+    sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}", json={
+        "status": "done", "finished_at": "now()",
+        "progress": {**p, "stage": "done", "r2_key": key,
+                     "previous_r2_key": clip["r2_key"],
+                     "duration": qa.duration},
+    })
+    for f in work.glob("*"):
+        f.unlink(missing_ok=True)
+
+
 def build_job_config(user: dict, job: dict) -> dict:
     cfg = load_config()
-    cfg["clips"]["count"] = user.get("clips_per_stream", 3)
+    snapshot = (job.get("progress") or {}).get("settings_snapshot") or {}
+    cfg["clips"]["count"] = snapshot.get(
+        "clips_per_stream", user.get("clips_per_stream", 3))
     cfg["streamer_name"] = user.get("twitch_login", "the streamer")
-    # per-customer style profile overrides the default style block
-    for k, v in (user.get("style_profile") or {}).items():
+    # Jobs use the dashboard template captured when the user pressed Run.
+    # Falling back to the live profile keeps old pre-snapshot jobs compatible.
+    style_profile = snapshot.get(
+        "style_profile", user.get("style_profile") or {})
+    for k, v in style_profile.items():
         if isinstance(v, dict) and isinstance(cfg["style"].get(k), dict):
             cfg["style"][k].update(v)
         else:
@@ -113,6 +338,13 @@ MAX_VOD_H = float(os.environ.get("MAX_VOD_HOURS", "16"))
 
 
 def process(job: dict) -> None:
+    kind = (job.get("progress") or {}).get("kind")
+    if kind == "clip_source":
+        process_clip_source(job)
+        return
+    if kind == "clip_edit":
+        process_clip_edit(job)
+        return
     from clipfarm import fetch
     info = {}
     try:
@@ -172,12 +404,82 @@ def process(job: dict) -> None:
         return
 
     cfg = build_job_config(user, job)
-    cfg["_progress"] = lambda stage, detail="": set_progress(job["id"], stage, detail)
+    processing_started = time.monotonic()
+    progress_lock = threading.Lock()
+    progress = dict(job.get("progress") or {})
+    progress.update({
+        "stage": "finding_vod", "detail": "",
+        "requested": int(cfg["clips"]["count"]),
+        "published": 0, "ready_clip_ids": [],
+    })
+    stage_started = time.monotonic()
+    current_stage = "finding_vod"
+
+    def update_root_progress(stage: str, detail: str = "", **extra) -> None:
+        nonlocal stage_started, current_stage
+        with progress_lock:
+            now = time.monotonic()
+            timings = dict(progress.get("timings_s") or {})
+            if stage != current_stage:
+                timings[current_stage] = round(
+                    timings.get(current_stage, 0) + now - stage_started, 2)
+                stage_started = now
+                current_stage = stage
+            progress.update({
+                "stage": stage, "detail": detail, "timings_s": timings,
+                **extra,
+            })
+            sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
+               json={"progress": progress})
+
+    published_rows = []
+
+    def publish_ready(rendered: dict) -> None:
+        # Serialize the small upload/insert bookkeeping section while the two
+        # expensive renders remain parallel. A completed clip becomes visible
+        # immediately; the rest of the batch keeps processing.
+        with progress_lock:
+            # Preserve editorial rank even when candidate 2 finishes rendering
+            # before candidate 1. Gaps are acceptable when an earlier bench
+            # candidate fails QA; reordering the visible winners is not.
+            slot = int(rendered.get("_candidate_index", len(published_rows))) + 1
+            key = f"{job['user_id']}/{job['id']}/{slot:02d}.mp4"
+            upload_r2(Path(rendered["file"]), key)
+            row = sb("POST", "/rest/v1/clips", json={
+                "job_id": job["id"], "user_id": job["user_id"],
+                "r2_key": key, "title": rendered["title"],
+                "hook": rendered["hook"], "score": rendered["score"],
+                "start_s": rendered["start_s"], "end_s": rendered["end_s"],
+            }).json()[0]
+            rendered["_published"] = True
+            rendered["_clip_id"] = row["id"]
+            rendered["_r2_key"] = key
+            published_rows.append(row)
+            recipes = dict(progress.get("clip_recipes") or {})
+            recipes[row["id"]] = rendered.get("edit_recipe")
+            progress.update({
+                "published": len(published_rows),
+                "ready_clip_ids": [r["id"] for r in published_rows],
+                "clip_recipes": recipes,
+                "detail": (
+                    f"{len(published_rows)} clip"
+                    f"{'s' if len(published_rows) != 1 else ''} ready — "
+                    "finishing the rest"
+                ),
+            })
+            sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
+               json={"progress": progress})
+
+    cfg["_progress"] = update_root_progress
+    cfg["_clip_ready"] = publish_ready
+    update_root_progress("finding_vod")
     result = pipeline.run(cfg, vod_url=job["vod_url"])
-    set_progress(job["id"], "uploading")
+    update_root_progress("uploading", "finalizing the batch")
 
     clip_rows = []
     for i, c in enumerate(result["clips"], 1):
+        if c.get("_published"):
+            continue
         key = f"{job['user_id']}/{job['id']}/{i:02d}.mp4"
         upload_r2(Path(c["file"]), key)
         clip_rows.append({
@@ -185,13 +487,48 @@ def process(job: dict) -> None:
             "title": c["title"], "hook": c["hook"], "score": c["score"],
             "start_s": c["start_s"], "end_s": c["end_s"],
         })
+    inserted = list(published_rows)
     if clip_rows:
-        sb("POST", "/rest/v1/clips", json=clip_rows)
+        inserted.extend(sb("POST", "/rest/v1/clips", json=clip_rows).json())
+    recipes = {}
+    rendered_by_id = {
+        c.get("_clip_id"): c for c in result["clips"] if c.get("_clip_id")}
+    unpublished = iter([c for c in result["clips"] if not c.get("_published")])
+    for row in inserted:
+        rendered = rendered_by_id.get(row["id"]) or next(unpublished)
+        recipes[row["id"]] = rendered.get("edit_recipe") or {
+            "source_start": rendered["start_s"],
+            "source_end": rendered["end_s"],
+            "keep_intervals": [[rendered["start_s"], rendered["end_s"]]],
+            "cam": None,
+        }
 
+    processing_seconds = round(time.monotonic() - processing_started, 2)
+    # Modal's public per-second CPU + memory rates for this fixed 8-core/8-GiB
+    # function. This is observability, not billing authority.
+    estimated_compute = round(
+        processing_seconds * ((8 * 0.0000131) + (8 * 0.00000222)), 4)
     sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
        json={"status": "done", "finished_at": "now()",
-             "progress": {"stage": "done", "detail": "",
-                          "preset": (cfg["style"].get("preset") or "classic")}})
+             "progress": {**progress, "stage": "done", "detail": "",
+                          "preset": (cfg["style"].get("preset") or "classic"),
+                          "title_strategy": cfg["style"].get(
+                              "title_strategy", "curiosity"),
+                          "opening_effect": cfg["style"].get(
+                              "opening_effect", "punch_zoom"),
+                          "requested": result.get(
+                              "requested", cfg["clips"]["count"]),
+                          "shipped": len(result["clips"]),
+                          "published": len(inserted),
+                          "processing_seconds": processing_seconds,
+                          "estimated_modal_compute_usd": estimated_compute,
+                          "fulfilled": result.get("fulfilled"),
+                          "candidates": result.get("candidate_count"),
+                          "verified": result.get("verified_count"),
+                          "rejected": result.get("rejected_count"),
+                          "rejection_reasons": result.get(
+                              "rejection_reasons", []),
+                          "clip_recipes": recipes}})
     sb("POST", "/rest/v1/credit_events",
        json={"user_id": job["user_id"], "delta": -credits_needed,
              "reason": "job" if credits_needed == 1 else "job (long VOD)",
@@ -201,8 +538,27 @@ def process(job: dict) -> None:
 
 
 def fail(job: dict, err: str) -> None:
+    # Preserve the visible settings/progress and leave a useful dashboard
+    # explanation. Previously a fast failure disappeared from ActiveJobs and
+    # looked as if clicking Run had done nothing.
+    try:
+        rows = sb(
+            "GET", f"/rest/v1/jobs?id=eq.{job['id']}&select=progress").json()
+        progress = dict((rows[0] if rows else {}).get("progress") or {})
+    except Exception:
+        progress = dict(job.get("progress") or {})
+    lines = [line.strip() for line in err.splitlines() if line.strip()]
+    detail = lines[-1] if lines else "Processing stopped unexpectedly."
+    if "free disk" in err.lower():
+        disk_line = next(
+            (line.strip() for line in lines if "free disk" in line.lower()),
+            detail,
+        )
+        detail = disk_line.removeprefix("SystemExit: ")
+    progress.update({"stage": "failed", "detail": detail[:500]})
     sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
-       json={"status": "failed", "error": err[-1500:], "finished_at": "now()"})
+       json={"status": "failed", "error": err[-1500:],
+             "progress": progress, "finished_at": "now()"})
 
 
 def main_loop() -> None:

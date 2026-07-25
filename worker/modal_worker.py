@@ -19,11 +19,7 @@ image = (
     .pip_install(
         "yt-dlp", "faster-whisper", "numpy", "pyyaml",
         "httpx", "boto3", "openai", "opencv-python-headless<5",
-        "nvidia-cublas-cu12", "nvidia-cudnn-cu12==9.*",
     )
-    .env({"LD_LIBRARY_PATH":
-          "/usr/local/lib/python3.12/site-packages/nvidia/cublas/lib:"
-          "/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib"})
     .add_local_dir(str(REPO / "clipfarm"), remote_path="/root/app/clipfarm")
     .add_local_file(str(REPO / "config.yaml"), remote_path="/root/app/config.yaml")
     .add_local_file(str(REPO / "worker/worker.py"),
@@ -58,7 +54,7 @@ def poll():
     worker.requeue_stale()
     if worker.has_ready_job() and not worker.has_running_job():
         drain.spawn()
-        print("ready job found -> GPU drain spawned")
+        print("ready job found -> CPU drain spawned")
 
 
 @app.function(

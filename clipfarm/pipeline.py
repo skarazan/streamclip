@@ -3,11 +3,13 @@
 import json
 import re
 import shutil
+import threading
 import time
-from datetime import date
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime
 from pathlib import Path
 
-from . import detect, fetch, render, transcribe
+from . import detect, fetch, quality, render, transcribe
 from .config import PROJECT_ROOT, check_disk, free_gb
 
 
@@ -16,7 +18,7 @@ def _slug(text: str, n: int = 40) -> str:
     return s[:n] or "clip"
 
 
-PIPELINE_VERSION = "v10.1 (groq transcription, cpu-only, context-biased captions)"
+PIPELINE_VERSION = "v12.0 (bounded parallel CPU pipeline + progressive delivery)"
 
 
 def _ai_moments(cfg, words, profile, chat, llm, report, vod_work):
@@ -34,11 +36,19 @@ def _ai_moments(cfg, words, profile, chat, llm, report, vod_work):
             base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
             streamer=cfg.get("streamer_name", "the streamer"),
             fallback_models=llm.get("fallback_models"), profile=profile,
-            persona=cfg.get("persona", "generic"), chat=chat)
+            persona=cfg.get("persona", "generic"), chat=chat,
+            title_strategy=cfg.get("style", {}).get(
+                "title_strategy", "curiosity"))
         if scored:
             mom_cache.write_text(_json.dumps(
                 [{"start": m.start, "end": m.end, "score": m.score,
-                  "title": m.title, "hook": m.hook, "reason": m.reason}
+                  "title": m.title, "hook": m.hook, "reason": m.reason,
+                  "archetype": m.archetype,
+                  "trigger_quote": m.trigger_quote,
+                  "button_quote": m.button_quote,
+                  "button_kind": m.button_kind,
+                  "trigger_role": m.trigger_role,
+                  "button_role": m.button_role}
                  for m in scored]))
     if not scored:
         return []
@@ -47,7 +57,11 @@ def _ai_moments(cfg, words, profile, chat, llm, report, vod_work):
         base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
         streamer=cfg.get("streamer_name", "the streamer"),
         fallback_models=llm.get("fallback_models"),
-        persona=cfg.get("persona", "generic"))
+        persona=cfg.get("persona", "generic"),
+        cache_dir=vod_work / "judgments",
+        title_strategy=cfg.get("style", {}).get(
+            "title_strategy", "curiosity"),
+        desired_count=cfg.get("clips", {}).get("count", 3))
 
 
 def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
@@ -139,18 +153,19 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
         clips_raw = _crowd.fetch_vod_clips(
             vod_url, cache=vod_work / "twitch_clips.json")
         clusters = _crowd.cluster_moments(clips_raw)
-        for cl in clusters[:15]:
-            # the earliest clip in a cluster CONTAINS the moment: Twitch's
-            # clip button records the ~30s BEFORE the press. Anchor there.
-            s = max(0.0, cl.start - 10.0)
-            e = min(max(cl.end, s + 22.0), s + 90.0)
+        for cl in clusters[:30]:
+            # Twitch vod_offset is the published clip START. Give the editor
+            # a bounded context window around the independent start mode; do
+            # not pretend it identifies the payoff.
+            s = max(0.0, cl.anchor_start - 12.0)
+            e = min(max(cl.end, cl.anchor_start + 28.0), s + 60.0)
             crowd_moments.append(detect.Moment(
                 start=s, end=e,
                 score=min(10.0, 5.0 + cl.strength / 5.0),
                 title=(cl.titles[0] if cl.titles else "crowd moment")[:80],
                 reason=f"{cl.clippers} viewers clipped this live "
                        f"({cl.views} clip views)",
-                crowd=cl.clippers, crowd_peak=cl.median_start,
+                crowd=cl.clippers, crowd_anchor=cl.anchor_start,
                 source="crowd"))
         if crowd_moments:
             print(f"Crowd ground truth: {len(clips_raw)} viewer clips -> "
@@ -163,6 +178,8 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
     # scoring, ignoring the crowd) alongside the crowd ones, so crowd-vs-AI
     # selection can be compared in the same batch.
     ai_count = int(cfg.get("clips", {}).get("ai_count", 0))
+    desired_count = int(cfg.get("clips", {}).get("count", 3))
+    editor_shortlist = min(30, max(24, desired_count * 4))
 
     llm = cfg["llm"]
     if tier_a:
@@ -178,10 +195,23 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                 api_key_env=llm.get("api_key_env"),
                 streamer=cfg.get("streamer_name", "the streamer"),
                 fallback_models=llm.get("fallback_models"),
-                persona=cfg.get("persona", "generic"), post_bar=6)
+                persona=cfg.get("persona", "generic"), post_bar=6,
+                shortlist=editor_shortlist, cache_dir=vod_work / "judgments",
+                title_strategy=cfg.get("style", {}).get(
+                    "title_strategy", "curiosity"),
+                desired_count=desired_count)
         for m in moments:
             m.source = "crowd"
-        if (ai_count > 0 or cfg["clips"].get("ai_merge")) and words:
+        crowd_inventory = sum(m.decision != "reject" for m in moments)
+        # Crowd clips are an excellent prior, but a high requested count can
+        # exhaust them. Only then scan the cached whole transcript for extra
+        # moments; the merged editor and deterministic gates still enforce the
+        # same quality bar.
+        auto_expand = crowd_inventory < desired_count + 2
+        if (ai_count > 0 or cfg["clips"].get("ai_merge") or auto_expand) and words:
+            if auto_expand:
+                print(f"Crowd bench has {crowd_inventory} usable candidates "
+                      f"for {desired_count} requested; expanding whole-VOD search")
             print("Also scoring the VOD for AI-chosen moments...")
             ai = _ai_moments(cfg, words, profile, chat, llm, report, vod_work)
             for m in ai:
@@ -190,7 +220,7 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
             ai = [a for a in ai
                   if not any(abs(a.start - c.start) < 45 for c in moments)]
             moments = moments + ai
-            if cfg["clips"].get("ai_merge"):
+            if cfg["clips"].get("ai_merge") or auto_expand:
                 # MERGED JUDGE: one head-to-head pass over BOTH pools — the
                 # AI rates the crowd's moments against its own and the best
                 # win on merit, no quotas. Crowd picks carry their "N viewers
@@ -205,7 +235,11 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                     streamer=cfg.get("streamer_name", "the streamer"),
                     fallback_models=llm.get("fallback_models"),
                     persona=cfg.get("persona", "generic"),
-                    shortlist=20, post_bar=6)
+                    shortlist=editor_shortlist, post_bar=6,
+                    cache_dir=vod_work / "judgments",
+                    title_strategy=cfg.get("style", {}).get(
+                        "title_strategy", "curiosity"),
+                    desired_count=desired_count)
                 won = {}
                 for m in moments:
                     won[m.source] = won.get(m.source, 0) + 1
@@ -242,11 +276,19 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                 base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
                 streamer=cfg.get("streamer_name", "the streamer"),
                 fallback_models=llm.get("fallback_models"), profile=profile,
-                persona=cfg.get("persona", "generic"), chat=chat)
+                persona=cfg.get("persona", "generic"), chat=chat,
+                title_strategy=cfg.get("style", {}).get(
+                    "title_strategy", "curiosity"))
             if moments:
                 mom_cache.write_text(json.dumps(
                     [{"start": m.start, "end": m.end, "score": m.score,
-                      "title": m.title, "hook": m.hook, "reason": m.reason}
+                      "title": m.title, "hook": m.hook, "reason": m.reason,
+                      "archetype": m.archetype,
+                      "trigger_quote": m.trigger_quote,
+                      "button_quote": m.button_quote,
+                      "button_kind": m.button_kind,
+                      "trigger_role": m.trigger_role,
+                      "button_role": m.button_role}
                      for m in moments]))
         if not moments:
             print("  LLM found nothing usable; falling back to loudness.")
@@ -259,7 +301,11 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                 api_key_env=llm.get("api_key_env"),
                 streamer=cfg.get("streamer_name", "the streamer"),
                 fallback_models=llm.get("fallback_models"),
-                persona=cfg.get("persona", "generic"))
+                persona=cfg.get("persona", "generic"),
+                cache_dir=vod_work / "judgments",
+                title_strategy=cfg.get("style", {}).get(
+                    "title_strategy", "curiosity"),
+                desired_count=desired_count)
     else:
         print("No API credentials for configured model -> loudness-only mode.")
         moments = detect.moments_from_energy(profile)
@@ -313,15 +359,21 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
             min_gap_s=cfg["clips"].get("min_gap_minutes", 20) * 60,
             raw_profile=raw_profile)
 
+    moments = [m for m in moments if m.decision != "reject"]
+    # The full-VOD scan/editor call is already paid. Keep a deeper verified
+    # bench so additional requested outputs mostly add cheap segment captions
+    # and local renders instead of forcing another whole-stream run.
+    bench_n = min(30, max(want * 4, want + 8))
     if ai_count > 0:
         # A/B: pick each source's candidates separately so neither crowds out
         # the other; label them for side-by-side comparison
         crowd_ms = [m for m in moments if m.source != "ai"]
         ai_ms = [m for m in moments if m.source == "ai"]
-        clips = _sel(crowd_ms, crowd_want + 2) + _sel(ai_ms, ai_count + 2)
+        clips = (_sel(crowd_ms, min(bench_n, crowd_want + 5))
+                 + _sel(ai_ms, min(bench_n, ai_count + 5)))
         print(f"A/B bench: {len(crowd_ms)} crowd + {len(ai_ms)} AI moments")
     else:
-        clips = _sel(moments, want + 3)
+        clips = _sel(moments, bench_n)
     if not clips:
         raise SystemExit("No clip candidates found.")
     print(f"Selected {len(clips)} clips:")
@@ -329,19 +381,41 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         print(f"  [{m.start/60:6.1f}m] score {m.score:.0f} energy {m.energy:.2f}"
               f"  {m.title}")
 
-    # 6. download all segments first — facecam detection gets every segment
+    # 6. Download lightweight analysis proxies first. Exact 1080p section
+    # downloads re-encode at their boundaries, so doing that for the entire
+    # 17-24 candidate bench blocks the first result for minutes. Proxies are
+    # sufficient for facecam, transcript and semantic gates; final-quality
+    # media is fetched only for the next render wave below.
     out_dir = PROJECT_ROOT / cfg["output"]["dir"] / f"{date.today()}_{vod_id}"
     out_dir.mkdir(parents=True, exist_ok=True)
+    prior = [
+        *out_dir.glob("*.mp4"), *out_dir.glob("*.txt"),
+        *out_dir.glob("selection_manifest.json"),
+    ]
+    if prior:
+        archive = out_dir / "_previous" / datetime.now().strftime(
+            "%Y%m%d-%H%M%S")
+        archive.mkdir(parents=True, exist_ok=True)
+        for artifact in prior:
+            artifact.replace(archive / artifact.name)
+        print(f"Archived {len(prior)} prior top-level artifact(s) to "
+              f"{archive.relative_to(PROJECT_ROOT)}")
     style = cfg["style"]
 
-    segs = []
-    for i, m in enumerate(clips, 1):
-        seg = vod_work / f"seg_{i:02d}.mp4"
-        report("clipping", f"clip {i}/{len(clips)}: downloading moment")
+    def _download_one(index_m):
+        i, m = index_m
+        seg = vod_work / f"probe_{i:02d}.mp4"
         print(f"[{i}/{len(clips)}] Downloading segment "
               f"{m.start:.0f}s-{m.end:.0f}s...")
-        segs.append(fetch.download_segment(
-            vod_url, m.start, m.end, seg, cfg["clips"]["quality"]))
+        return fetch.download_segment(
+            vod_url, m.start, m.end, seg,
+            cfg["clips"].get("analysis_quality", "best[height<=360]"))
+
+    report("clipping", f"downloading {len(clips)} candidate moments")
+    download_workers = min(
+        max(1, int(cfg["clips"].get("download_workers", 3))), len(clips))
+    with ThreadPoolExecutor(max_workers=download_workers) as pool:
+        segs = list(pool.map(_download_one, enumerate(clips, 1)))
 
     # 7. facecam: the screen is full of faces that aren't the streamer, and
     # OBS scenes move the cam around, so the only durable anchor is the
@@ -427,7 +501,9 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         try:
             ctx = (f"Twitch gaming stream by {cfg.get('streamer_name', 'a streamer')}. "
                    f"Casual loud speech, screaming, gamer slang.")
-            cap_words = transcribe.transcribe_clips_groq(items, context=ctx)
+            cap_words = transcribe.transcribe_clips_groq(
+                items, context=ctx,
+                max_workers=cfg["transcribe"].get("caption_workers", 3))
         except Exception as e:
             print(f"  groq caption pass failed ({str(e)[:120]})"
                   + (f" -> local {cap_model}" if cap_model else ""))
@@ -440,207 +516,237 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         cap_words = transcribe.transcribe_clips(
             items, cap_model, cfg["transcribe"]["compute_type"])
 
-    # 8.5 ARC-VERIFIED SHIPPING GATE. Verdict pattern across every user
-    # review: clips whose trigger+button quotes are audibly inside them =
-    # "cinema"; clips we couldn't verify = "random bs". So verify against
-    # the clip's OWN captions and let verified arcs outrank everything.
-    def _quote_ratio(quote: str, ws) -> float:
-        if not quote or not ws:
-            return -1.0  # no quote / no words: distinguish from a 0% match
-        text = " ".join(w.text.lower() for w in ws)
-        toks = [t for t in re.sub(r"[^a-z0-9 ]", " ", quote.lower()).split()
-                if len(t) > 2]
-        if not toks:
-            return -1.0
-        return sum(1 for t in toks if t in text) / len(toks)
-
-    def _quote_in(quote: str, ws) -> bool:
-        # 0.45: editor quotes come from the rough whole-VOD transcript,
-        # captions from a per-clip re-transcription — wording drifts
-        return _quote_ratio(quote, ws) >= 0.45
-
-    def _is_scream(quote: str) -> bool:
-        """The button is a noise, not a sentence ('AHHHHH!', 'WAAAHHH')."""
-        toks = [t for t in re.sub(r"[^a-z ]", " ", quote.lower()).split() if t]
-        return bool(toks) and all(len(set(t)) <= 3 for t in toks)
-
-    def _acoustic_button(m) -> bool:
-        """Scream buttons can't be text-matched — whisper spells 'AHHHHH' a
-        dozen ways or drops it entirely — so verify that payoff acoustically:
-        a loudness spike in the clip's back half. Without this the gate threw
-        away exactly the jumpscare/scream clips that carry a Short."""
-        if raw_profile is None or not len(raw_profile):
-            return False
-        a, b = int(m.start), int(min(m.end, len(raw_profile) - 1))
-        seg = raw_profile[a:b + 1]
-        if len(seg) < 4:
-            return False
-        tail = seg[len(seg) // 2:]
-        med = float(sorted(seg)[len(seg) // 2]) or 0.01
-        return bool(len(tail)) and float(tail.max()) >= max(0.55, 2.0 * med)
-
-    verified, too_long = [], []
+    # 8.5 Deterministic source gate. A model proposes quotes and roles; this
+    # timestamped matcher certifies that cause -> payoff is actually present
+    # and ordered. Failed candidates stay in the manifest but never ship.
+    source_arcs = []
+    source_gate_records = []
+    keep_idx = []
     for i, m in enumerate(clips):
         ws = cap_words[i] or [w for w in words if m.start <= w.start <= m.end]
-        # calibrated on real ratios: editors quote BUTTONS verbatim (reliable
-        # exact check) but paraphrase TRIGGERS — so the setup is verified
-        # structurally: real speech in the clip's first half, or the quote.
-        dur = (ws[-1].end - ws[0].start) if ws else 0.0
-        setup_words = sum(1 for w in ws
-                          if ws and w.start - ws[0].start <= dur * 0.5)
-        button_ok = (_quote_in(m.button_quote, ws)
-                     or (_is_scream(m.button_quote) and _acoustic_button(m)))
-        ok = button_ok and (_quote_in(m.trigger_quote, ws) or setup_words >= 8)
-        verified.append(ok)
-        # format fit: smart-cut can now condense talking-dense clips, so only
-        # a moment whose silence-cut length is STILL huge (>52s — beyond what
-        # tightening the talking can rescue) is a poor fit; let the bench
-        # replace those. Mid-range clips get smart-cut at render.
-        ivs = detect.keep_intervals(words, m.start, m.end, profile=raw_profile)
-        eff = sum(e - s for s, e in ivs)
-        too_long.append(eff > 52.0)
-        rt = _quote_ratio(m.trigger_quote, ws)
-        rb = _quote_ratio(m.button_quote, ws)
+        arc = quality.verify_arc(
+            m.trigger_quote, m.button_quote, ws, m.start, m.end,
+            button_kind=m.button_kind, trigger_role=m.trigger_role,
+            button_role=m.button_role, profile=raw_profile)
+        source_arcs.append(arc)
+        source_gate_records.append({
+            "candidate": i + 1, "title": m.title, "source": m.source,
+            "decision": m.decision, "score": m.score,
+            "start": m.start, "end": m.end,
+            "trigger_quote": m.trigger_quote,
+            "button_quote": m.button_quote,
+            "button_kind": m.button_kind,
+            "trigger_role": m.trigger_role,
+            "button_role": m.button_role,
+            "arc": arc.to_dict(),
+            "rejected": None if arc.passed else arc.reason,
+        })
+        substance_reject = quality.low_substance_reason(
+            m.decision, m.button_kind, m.archetype)
+        low_substance = substance_reject is not None
+        verdict = ("REJECTED" if low_substance or not arc.passed
+                   else "VERIFIED")
+        verdict_reason = substance_reject or arc.reason
         print(f"  arc check '{m.title[:45]}': "
-              f"{'VERIFIED' if ok else 'unverified'} "
-              f"(trigger {rt:.0%} '{m.trigger_quote[:40]}' | "
-              f"button {'SCREAM' if rb < 0.45 and button_ok else f'{rb:.0%}'}"
-              f" '{m.button_quote[:40]}')"
+              f"{verdict} ({verdict_reason})"
               f"{' (no cam)' if not cams[i] else ''}")
-
-    if len(clips) > want:
-        # VERIFIED FIRST: an unverified clip (no real trigger->payoff arc)
-        # is "random bs" and must never ship over a real moment; rank the
-        # rest by cam-present > fits-format.
-        # verified-first, then cam, then length — but keep ALL so a quota can
-        # be filled with the next-best when verified picks run short (the A/B
-        # test needs its full count from each source to compare fairly)
-        def _rank(idxs):
-            return sorted(idxs, key=lambda i: (not verified[i], not cams[i],
-                                               too_long[i], i))
-        if ai_count > 0:
-            # A/B split: best crowd_want crowd picks AND best ai_count AI picks
-            ci = [i for i in range(len(clips)) if clips[i].source != "ai"]
-            ai = [i for i in range(len(clips)) if clips[i].source == "ai"]
-            order = sorted(_rank(ci)[:crowd_want] + _rank(ai)[:ai_count])
+        if arc.passed and not low_substance:
+            keep_idx.append(i)
         else:
-            # verified-first ranking already prefers real clips; unverified
-            # only fill in when fewer than `want` verified exist
-            order = sorted(_rank(list(range(len(clips))))[:want])
-        for i in (set(range(len(clips))) - set(order)):
-            reasons = [r for r, on in (
-                ("off-cam", not cams[i]), ("too long", too_long[i]),
-                ("unverified arc", not verified[i])) if on]
-            print(f"  dropping '{clips[i].title[:45]}' "
-                  f"({'/'.join(reasons) or 'overshoot'})")
+            m.reject_reason = substance_reject or arc.reason
+            source_gate_records[-1]["rejected"] = m.reject_reason
             segs[i].unlink(missing_ok=True)
-        clips = [clips[i] for i in order]
-        segs = [segs[i] for i in order]
-        cams = [cams[i] for i in order]
-        cap_words = [cap_words[i] for i in order]
+    if not keep_idx:
+        raise SystemExit("No candidate passed the trigger-to-button gate.")
+
+    # Preserve the full verified bench. Rendering and media QA consume it in
+    # rank order until the requested number of artifacts pass.
+    keep_idx.sort(key=lambda i: (
+        clips[i].decision != "post", -clips[i].score, not cams[i]))
+    clips = [clips[i] for i in keep_idx]
+    segs = [segs[i] for i in keep_idx]
+    cams = [cams[i] for i in keep_idx]
+    cap_words = [cap_words[i] for i in keep_idx]
+    source_arcs = [source_arcs[i] for i in keep_idx]
 
     # 9. render — ffmpeg is subprocess-bound, so clips render in parallel
     report("rendering", f"rendering {len(clips)} clips")
     top_frac = style.get("split_top", 0.42)
 
-    _STOP = {"that", "this", "they", "them", "then", "than", "with", "what",
-             "when", "have", "just", "like", "your", "from", "here", "there",
-             "gonna", "about", "yeah", "okay", "bruh"}
+    manifest = {
+        "pipeline_version": PIPELINE_VERSION, "vod_url": vod_url,
+        "requested": want, "source_gate": source_gate_records,
+        "template": {
+            "caption_preset": style.get("preset", "classic"),
+            "title_strategy": style.get("title_strategy", "curiosity"),
+            "opening_effect": style.get("opening_effect", "punch_zoom"),
+        },
+        "provenance": {
+            "generation": "automatic_pipeline",
+            "manual_interventions": [],
+        },
+        "attempts": [], "shipped": [],
+    }
+    manifest_lock = threading.Lock()
 
-    def _payoff_end(m, ws) -> float | None:
-        """When the button line finishes speaking — the natural out-point.
-        Matched on the quote's distinctive words (the editor writes buttons
-        close to verbatim), taking the LAST hit so a repeated line ends on
-        its final delivery. Never trims past the crowd peak."""
-        if not ws or not m.button_quote:
-            return None
-        toks = {t for t in re.sub(r"[^a-z0-9 ]", " ", m.button_quote.lower()).split()
-                if len(t) > 3 and t not in _STOP}
-        if not toks:
-            return None
-        hit = None
-        for w in ws:
-            if re.sub(r"[^a-z0-9]", "", w.text.lower()) in toks:
-                hit = w.end
-        if hit is None:
-            return None
-        end = min(m.end, hit + 2.0)
-        if m.crowd_peak and end < m.crowd_peak + 1.5:
-            return None
-        return end
-
-    def _render_one(i_m_seg_cam):
-        i, m, seg, cam = i_m_seg_cam
+    def _render_one(out_i, cand_i, m, seg, cam, source_arc):
+        i = out_i
         src_seg = seg  # the DOWNLOADED file; `seg` gets reassigned when cut
+        source_start = m.start
         tag = f"{m.source.upper()}_" if m.source else ""
         name = f"{i:02d}_{tag}{_slug(m.title)}"
-        print(f"[{i}/{len(clips)}] Rendering short...")
-        clip_words = cap_words[i - 1] or words
-        # 0) END ON THE PUNCHLINE. Clips ran well past the joke because the
-        # bounds come from the crowd cluster, which keeps rolling after the
-        # payoff. Cut shortly after the last word of the button line.
-        tail = _payoff_end(m, cap_words[i - 1])
-        if tail and m.end - tail > 3.0 and tail - m.start >= 12.0:
-            print(f"  ending on the payoff, -{m.end - tail:.1f}s of tail")
-            m.end = tail
-        ass_start, ass_end = m.start, m.end
-        # LAYERED CUTTING. 1) silence jump-cut removes dead air but keeps
-        # short gaps (NPC sounds/beats live there), guarded by raw loudness.
-        ivals = detect.keep_intervals(words, m.start, m.end,
-                                      profile=raw_profile)
-        eff = sum(e - s for s, e in ivals)
-        # 2) SMART-CUT: if a clip is STILL too long after removing silence,
-        # it's talking-dense (a donation/story bit with redundant repetition)
-        # — an LLM condenses the talking to the trigger->reaction->payoff arc.
-        # Sound-payoff clips never reach here (their silence-cut fits), so we
-        # never risk an LLM (text-only) cutting a gap that holds a sound.
-        target = cfg["clips"].get("smart_cut_target", 30)
-        if cfg["clips"].get("smart_cut", True) and eff > target + 3:
-            llm = cfg["llm"]
-            sc = detect.smart_cut(
-                words, m.start, m.end, m.trigger_quote, m.button_quote,
-                target, llm["model"], base_url=llm.get("base_url"),
-                api_key_env=llm.get("api_key_env"),
-                fallback_models=llm.get("fallback_models"))
-            if sc:
-                ivals = sc
-        # fallback: if a crowd clip is still long (smart-cut off/failed), drop
-        # leading kept-spans until under budget — keeps the payoff (the end).
-        while (sum(e - s for s, e in ivals) > target + 8 and len(ivals) > 1):
-            ivals = ivals[1:]
-        # one long unbroken span (wall-to-wall talking, nothing to jump-cut):
-        # keep the tail, where the payoff sits, but never cut past the crowd
-        # peak — that's the moment the viewers clipped.
-        if len(ivals) == 1 and ivals[0][1] - ivals[0][0] > target + 8:
-            s, e = ivals[0]
-            head = e - (target + 8)
-            if m.crowd_peak:
-                head = min(head, max(s, m.crowd_peak - 6.0))
-            ivals = [(head, e)]
+        print(f"[bench {cand_i + 1}/{len(clips)}] Rendering candidate...")
+        clip_words = cap_words[cand_i] or [
+            w for w in words if m.start <= w.start <= m.end]
+        min_dur, target, hard_max = quality.duration_budget(m.archetype)
+        min_dur = max(min_dur, float(cfg["clips"].get("min_length", 16)))
+        # The verified quotes are evidence endpoints, not the complete story.
+        # Game/NPC/video triggers need visible runway before the quoted line:
+        # the cheer, attempted rescue, reveal, or action often happens there.
+        # Most importantly, NEVER jump-cut inside trigger -> button. Silence
+        # in that bridge can carry the visual cause that makes the reaction
+        # intelligible.
+        pre_roll = quality.contextual_preroll(
+            m.trigger_quote, m.trigger_role, m.reason)
+        # Preserve up to 30 seconds of the editor's chosen setup. The quote is
+        # an evidence anchor, not necessarily the first beat of the story.
+        arc_start = max(
+            m.start,
+            min(source_arc.trigger.start - pre_roll,
+                source_arc.trigger.start - 30.0),
+        )
+        if (m.button_kind or "").lower() == "scream":
+            close_end = quality.closing_beat_end(
+                clip_words, source_arc.button.end, m.end)
+            arc_end = min(m.end, close_end + .75)
+        else:
+            arc_end = min(m.end, source_arc.button.end + 1.25)
+        if arc_end - arc_start < min_dur:
+            arc_start = max(m.start, arc_end - min_dur)
+        ass_start, ass_end = arc_start, arc_end
+        gap_audit, cuttable_gaps = [], []
+        preserve_active_bridge = quality.needs_visual_bridge(
+            m.trigger_quote, m.trigger_role, m.button_kind)
+        for idle_gap in quality.speech_gaps(
+                clip_words, arc_start, arc_end):
+            if idle_gap.duration < 3.0:
+                continue
+            gap_motion = quality.visual_motion(
+                seg, idle_gap.start - source_start,
+                idle_gap.end - source_start)
+            cut = quality.should_cut_idle_gap(
+                idle_gap.duration, gap_motion,
+                preserve_active=preserve_active_bridge)
+            gap_audit.append({
+                "start": idle_gap.start, "end": idle_gap.end,
+                "duration": idle_gap.duration,
+                "motion": {
+                    "mean": gap_motion.mean,
+                    "static_fraction": gap_motion.static_fraction,
+                },
+                "cut": cut,
+            })
+            if cut:
+                cuttable_gaps.append(idle_gap)
+        ivals = quality.remove_idle_gaps(
+            arc_start, arc_end, cuttable_gaps)
+        if sum(e - s for s, e in ivals) < min_dur:
+            # A technically valid 10-second fragment is still too abrupt for
+            # this product. Restore one continuous context span rather than
+            # padding or shipping below the configured minimum.
+            safe_start = max(m.start, arc_end - min_dur)
+            ivals = [(safe_start, arc_end)]
+        duration_reject = quality.retained_duration_reason(ivals)
+        if duration_reject:
+            attempt = {
+                "candidate": cand_i + 1, "title": m.title,
+                "source_start": m.start, "source_end": m.end,
+                "source_arc": source_arc.to_dict(), "intervals": ivals,
+                "rejected": [duration_reject],
+            }
+            with manifest_lock:
+                manifest["attempts"].append(attempt)
+            print(f"  rejected: {duration_reject}")
+            src_seg.unlink(missing_ok=True)
+            return None
+        # Certify the proposed post-cut timeline. If a silence/LLM cut drops
+        # either endpoint or leaves a long tail, fall back to one safe span
+        # explicitly bounded by the matched trigger and button.
+        def _final_arc(spans):
+            remapped = detect.remap_words(clip_words, spans)
+            duration = sum(e - s for s, e in spans)
+            return quality.verify_arc(
+                m.trigger_quote, m.button_quote, remapped, 0.0, duration,
+                button_kind=m.button_kind, trigger_role=m.trigger_role,
+                button_role=m.button_role,
+                profile=quality.remap_profile(raw_profile, spans), final=True)
+
+        final_arc = _final_arc(ivals)
+        if not final_arc.passed:
+            safe_start = max(m.start, source_arc.trigger.start - pre_roll)
+            safe_end = min(m.end, source_arc.button.end + .75)
+            if safe_end - safe_start < min_dur:
+                safe_start = max(m.start, safe_end - min_dur)
+            ivals = [(safe_start, safe_end)]
+            final_arc = _final_arc(ivals)
+        attempt = {
+            "candidate": cand_i + 1, "title": m.title,
+            "source_start": m.start, "source_end": m.end,
+            "source_arc": source_arc.to_dict(), "intervals": ivals,
+            "final_arc": final_arc.to_dict(),
+            "retention_gaps": gap_audit,
+        }
+        violations = quality.metadata_violations(
+            m.title, m.hook, final_arc, m.button_role,
+            title_strategy=style.get("title_strategy", "curiosity"))
+        if not final_arc.passed or violations:
+            attempt["rejected"] = violations or [final_arc.reason]
+            with manifest_lock:
+                manifest["attempts"].append(attempt)
+            print(f"  rejected after cut planning: "
+                  f"{'; '.join(attempt['rejected'])}")
+            src_seg.unlink(missing_ok=True)
+            return None
+
         # apply whenever the kept spans don't cover the whole segment. Gating
         # this on len(ivals) > 1 silently threw away every single-span cut —
         # "keep just this 17s window" is smart-cut's most common answer, and
         # those clips shipped at full length.
         trimmed = bool(ivals) and (len(ivals) > 1
-                                   or ivals[0][0] > m.start + 0.05
+                                   or ivals[0][0] > source_start + 0.05
                                    or ivals[0][1] < m.end - 0.05)
         if trimmed:
-            saved = (m.end - m.start) - sum(e - s for s, e in ivals)
+            saved = (m.end - source_start) - sum(e - s for s, e in ivals)
             cuts = f"{len(ivals) - 1} silence(s)" if len(ivals) > 1 else "to one span"
             print(f"  jump-cutting {cuts}, -{saved:.1f}s dead air")
-            seg = render.cut_silences(
-                seg, [(s - m.start, e - m.start) for s, e in ivals],
-                vod_work / f"seg_{i:02d}_cut.mp4")
             clip_words = detect.remap_words(clip_words, ivals)
             ass_start, ass_end = 0.0, sum(e - s for s, e in ivals)
-        ass = render.build_ass(clip_words, ass_start, ass_end,
-                               style, vod_work / f"seg_{i:02d}.ass",
+        ass = render.build_ass(clip_words, ass_start, ass_end, style,
+                               vod_work / f"seg_c{cand_i + 1:02d}.ass",
                                hook=m.hook, hook_color_idx=i - 1,
                                hook_pos=top_frac if cam else None)
         final = render.render_short(seg, ass, out_dir / f"{name}.mp4",
                                     style.get("crop", "center"),
                                     cam=cam, top_frac=top_frac,
-                                    brand=cfg["output"].get("brand", ""))
+                                    brand=cfg["output"].get("brand", ""),
+                                    opening_effect=style.get(
+                                        "opening_effect", "punch_zoom"),
+                                    keep=(
+                                        [(s - source_start, e - source_start)
+                                         for s, e in ivals]
+                                        if trimmed else None))
+        media_qa = quality.inspect_media(
+            final, expected_duration=sum(e - s for s, e in ivals))
+        attempt["media_qa"] = media_qa.to_dict()
+        with manifest_lock:
+            manifest["attempts"].append(attempt)
+        if not media_qa.passed:
+            print(f"  artifact QA failed: {'; '.join(media_qa.errors)}")
+            final.unlink(missing_ok=True)
+            seg.unlink(missing_ok=True)
+            if src_seg != seg:
+                src_seg.unlink(missing_ok=True)
+            return None
         meta = out_dir / f"{name}.txt"
         desc = cfg["output"]["description_template"].format(title=m.title)
         picked = ("viewer clips (crowd)" if m.source == "crowd"
@@ -648,7 +754,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         meta.write_text(
             f"TITLE: {m.title}\n\nDESCRIPTION:\n{desc}\n"
             f"PICKED BY: {picked}\n"
-            f"WHY: {m.reason}\nSOURCE: {vod_url} @ {m.start:.0f}s\n")
+            f"WHY: {m.reason}\nSOURCE: {vod_url} @ {m.start:.0f}s\n"
+            f"ARC: {m.trigger_quote} -> {m.button_quote}\n")
         print(f"  -> {final.relative_to(PROJECT_ROOT)}")
         # delete the ACTUAL files this clip used. Rebuilding the name from `i`
         # deleted another thread's input whenever the arc gate dropped a clip:
@@ -657,14 +764,74 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         seg.unlink(missing_ok=True)  # keep disk usage low
         if src_seg != seg:
             src_seg.unlink(missing_ok=True)  # pre-cut original
-        return {"file": str(final), "title": m.title, "hook": m.hook,
-                "score": m.score, "start_s": m.start, "end_s": m.end}
+        result = {"file": str(final), "title": m.title, "hook": m.hook,
+                  "score": m.score, "start_s": m.start, "end_s": m.end,
+                  "_candidate_index": cand_i,
+                  "duration_s": media_qa.duration,
+                  "edit_recipe": {
+                      "source_start": source_start,
+                      "source_end": m.end,
+                      "keep_intervals": ivals,
+                      "cam": list(cam) if cam else None,
+                  }}
+        with manifest_lock:
+            manifest["shipped"].append(result)
+        return result
 
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        results = list(ex.map(_render_one,
-                              [(i, m, seg, cam) for i, (m, seg, cam)
-                               in enumerate(zip(clips, segs, cams), 1)]))
+    # Automatic bench refill: continue through verified candidates until N
+    # artifacts pass both semantic and media QA.
+    results = []
+    ready = cfg.get("_clip_ready") or (lambda result: None)
+    render_workers = max(1, min(
+        int(cfg["clips"].get("render_workers", 2)), 2))
+    bench = list(enumerate(zip(clips, segs, cams, source_arcs)))
+    cursor = 0
+    # Refill in small waves. This keeps at most two CPU encodes active and
+    # avoids rendering the entire bench when the first candidates pass.
+    while cursor < len(bench) and len(results) < want:
+        need = want - len(results)
+        wave = bench[cursor:cursor + min(render_workers, need)]
+        cursor += len(wave)
+
+        def _master(entry):
+            cand_i, (m, probe, cam, source_arc) = entry
+            report(
+                "rendering",
+                f"{len(results)}/{want} ready — fetching final-quality winner")
+            master = fetch.download_segment(
+                vod_url, m.start, m.end,
+                vod_work / f"master_c{cand_i + 1:02d}.mp4",
+                cfg["clips"]["quality"])
+            probe.unlink(missing_ok=True)
+            return cand_i, m, master, cam, source_arc
+
+        # The same two-slot ceiling covers final-quality network/section work
+        # and the following encodes. We never prepare the rest of the bench
+        # until a QA failure proves that a refill is needed.
+        with ThreadPoolExecutor(max_workers=len(wave)) as pool:
+            prepared = list(pool.map(_master, wave))
+        with ThreadPoolExecutor(max_workers=len(wave)) as pool:
+            futures = {
+                pool.submit(
+                    _render_one, cand_i + 1, cand_i, m, seg, cam, source_arc
+                ): cand_i
+                for cand_i, m, seg, cam, source_arc in prepared
+            }
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    results.append(result)
+                    ready(result)
+    for _, (_, seg, _, _) in bench[cursor:]:
+        seg.unlink(missing_ok=True)
+    results.sort(key=lambda result: result["_candidate_index"])
+    manifest["shipped"].sort(
+        key=lambda result: result.get("_candidate_index", 0))
+    manifest["fulfilled"] = len(results) == want
+    (out_dir / "selection_manifest.json").write_text(
+        json.dumps(manifest, indent=2))
+    if not results:
+        raise SystemExit("All rendered candidates failed final artifact QA.")
 
     # cleanup big audio file, keep transcript cache
     for f in vod_work.glob("vod_audio.*"):
@@ -674,7 +841,26 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     print(f"\nDone in {mins:.1f} min. Shorts + titles in: "
           f"{out_dir.relative_to(PROJECT_ROOT)}/")
     print("Review each clip, then upload from the YouTube app/studio.")
-    return {"out_dir": str(out_dir), "vod_url": vod_url, "clips": results}
+    rejected_attempts = [
+        a for a in manifest["attempts"] if a.get("rejected")]
+    return {
+        "out_dir": str(out_dir),
+        "vod_url": vod_url,
+        "clips": results,
+        "requested": want,
+        "fulfilled": manifest["fulfilled"],
+        "candidate_count": len(source_gate_records),
+        "verified_count": len(keep_idx),
+        "rejected_count": (
+            sum(bool(r.get("rejected")) for r in source_gate_records)
+            + len(rejected_attempts)
+        ),
+        "rejection_reasons": [
+            reason
+            for attempt in rejected_attempts
+            for reason in attempt.get("rejected", [])
+        ][:8],
+    }
 
 
 def clean_work() -> None:

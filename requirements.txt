@@ -3,4 +3,6 @@ faster-whisper
 numpy
 pyyaml
 anthropic
+openai
+httpx
 opencv-python-headless<5

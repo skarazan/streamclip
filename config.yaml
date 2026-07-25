@@ -11,11 +11,16 @@ channel:
 clips:
   count: 3              # shorts to produce per run
   min_length: 16        # seconds
-  max_length: 32        # sub-30 ideal; 40 bloated clips to 34-39s
+  max_length: 45        # duration is not the enemy; dead/irrelevant time is
   smart_cut: true         # LLM condense redundant talking when a clip stays long after silence-cut
   smart_cut_target: 28    # aim length for smart-cut (seconds)
   min_gap_minutes: 20   # spread the batch across the stream, not one section
+  analysis_quality: "best[height<=360]" # cheap candidate gate; never shipped
   quality: "best[height<=1080]"
+  # CPU-only bounded overlap. These caps improve utilization without creating
+  # extra Modal containers or an unbounded compute bill.
+  download_workers: 3
+  render_workers: 2
 
 # Whisper transcription (runs locally, no API cost)
 transcribe:
@@ -27,6 +32,7 @@ transcribe:
   provider: "groq"
   model: "base.en"
   caption_model: "distil-large-v3"
+  caption_workers: 3
   compute_type: "int8"
 
 # LLM moment scoring. Falls back to audio-loudness-only picking if no key.
@@ -46,14 +52,21 @@ llm:
   #     OpenRouter: base_url: https://openrouter.ai/api/v1          api_key_env: OPENROUTER_API_KEY  (":free" models)
   # benchmark 2026-07-04 (blind Claude judging): gpt-5-mini best picks/hooks.
   # ~$0.045/stream. scout = fast free fallback, gemini third (free-tier flaky).
-  model: "gemini-3.5-flash"  # OPENAI CAPPED (429 since Jul 11) — swap back to gpt-5-mini when billing fixed
-  fallback_models: ["claude-code", "meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.3-70b-versatile"]  # gemini primary -> Claude CLI (good, $0 subscription) -> llama last resort; gpt-5-mini dropped (429-capped)
+  model: "gemini-3.5-flash"  # primary Gemini free-tier quota pool
+  # Gemini quotas vary by model, so 3.6 gets a separate attempt before the
+  # provider chain leaves Google. Claude CLI and Groq remain last-resort pools.
+  fallback_models: ["gemini-3.6-flash", "claude-code", "meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.3-70b-versatile"]
   base_url: null
   api_key_env: "OPENAI_API_KEY"
   chunk_minutes: 8      # small chunks: free-tier TPM limits
 
 # Visual style — matched to @CheeseDipClips
 style:
+  # Dashboard-selectable packaging template. These change how a verified
+  # story is presented; they never bypass story/arc quality gates.
+  title_strategy: "curiosity"  # curiosity | stakes | reaction | quote
+  opening_effect: "punch_zoom" # clean | punch_zoom | impact | drift_pan
+
   # split = facecam auto-detected and stacked on top of gameplay.
   # Falls back to full-frame crop when no face is found in a segment.
   layout: "split"       # split | full

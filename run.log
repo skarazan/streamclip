@@ -300,3 +300,58 @@ Caption pass: groq turbo over 5 segments...
 Done in 3.4 min. Shorts + titles in: out/2026-07-23_2825075436/
 Review each clip, then upload from the YouTube app/studio.
 === RERUN4 done ===
+=== RERUN5 Thu Jul 23 21:16:24 EDT 2026 ===
+pipeline v10.1 (groq transcription, cpu-only, context-biased captions)
+Using VOD: https://www.twitch.tv/videos/2825075436
+Fully cached (transcript.groq-turbo.json + loudness.npy) — no download
+  20164 words, ~4.3h of speech
+Chat replay: 515 density samples, 27728 messages (sampled)
+Crowd ground truth: 472 viewer clips -> 65 moments, using top 15
+Tier A: crowd-first, skipping chunk scoring (15 crowd candidates)
+  editor pass kept 5/15 candidates
+Also scoring the VOD for AI-chosen moments...
+  editor pass kept 6/15 candidates
+Merged judge: 9 candidates (crowd + AI) -> head-to-head
+  ! editor pass on gemini-3.5-flash failed (RuntimeError: rate-limited after 5 retries)
+  editor pass kept 6/9 candidates
+  judge kept: 5 crowd, 1 AI
+Selected 6 clips:
+  [  53.5m] score 7 energy 0.43  CASEOH Loses It Over Crab Rangoons
+  [  96.4m] score 9 energy 0.54  CASEOH Panics So Hard Over Tanner Staring at Him
+  [ 117.7m] score 6 energy 0.11  CASEOH Discovers He Sounds Like a Chipmunk
+  [ 125.8m] score 8 energy 0.49  CASEOH Has a Total Meltdown Getting Hacked
+  [ 231.5m] score 8 energy 0.25  CASEOH Cheers at the Absolute Worst Time
+  [ 239.4m] score 6 energy 0.39  CASEOH Roasted by Chat's Brutal Body Insult
+[1/6] Downloading segment 3211s-3246s...
+[2/6] Downloading segment 5784s-5818s...
+[3/6] Downloading segment 7060s-7080s...
+[4/6] Downloading segment 7548s-7584s...
+[5/6] Downloading segment 13889s-13918s...
+[6/6] Downloading segment 14364s-14402s...
+Facecam: cached VOD identity
+Facecam: 5/6 matched; unmatched clips = streamer off-cam -> full frame
+[1/6] Facecam matched -> split layout
+[2/6] Facecam none -> full frame
+[3/6] Facecam matched -> split layout
+[4/6] Facecam matched -> split layout
+[5/6] Facecam matched -> split layout
+[6/6] Facecam matched -> split layout
+Caption pass: groq turbo over 6 segments...
+  arc check 'CASEOH Loses It Over Crab Rangoons': VERIFIED (trigger 100% 'Crab Rangoons are actually one of the be' | button 100% 'Give me the Crab Rangoons now!')
+  arc check 'CASEOH Panics So Hard Over Tanner Staring at ': unverified (trigger 86% 'Why are you looking up at me like that T' | button 40% 'I can't stand you Tanner. Bruh!') (no cam)
+  arc check 'CASEOH Discovers He Sounds Like a Chipmunk': unverified (trigger 80% 'I'm lagging? Cat, ain't no way I'm laggi' | button 0% 'Alvin in a chipmunk voice.')
+  arc check 'CASEOH Has a Total Meltdown Getting Hacked': VERIFIED (trigger 50% 'Oh my goodness, I'm locked.' | button 100% 'What does mounting do? I read it, but I ')
+  arc check 'CASEOH Cheers at the Absolute Worst Time': unverified (trigger 0% 'Woo!' | button 33% 'all the spectators just witnessed a deat')
+  arc check 'CASEOH Roasted by Chat's Brutal Body Insult': VERIFIED (trigger 100% 'built like a cereal box!' | button 100% 'built like he's trying to be swole, but ')
+  dropping 'CASEOH Panics So Hard Over Tanner Staring at ' (off-cam/unverified arc)
+  dropping 'CASEOH Discovers He Sounds Like a Chipmunk' (unverified arc)
+  dropping 'CASEOH Cheers at the Absolute Worst Time' (unverified arc)
+[1/3] Rendering short...
+[2/3] Rendering short...
+[3/3] Rendering short...  jump-cutting 1 silence(s), -8.3s dead air
+
+  ending on the payoff, -7.3s of tail
+  jump-cutting 2 silence(s), -10.5s dead air
+  -> out/2026-07-23_2825075436/03_AI_caseoh-roasted-by-chat-s-brutal-body-ins.mp4
+  -> out/2026-07-23_2825075436/02_CROWD_caseoh-has-a-total-meltdown-getting-hack.mp4
+=== RERUN5 done ===

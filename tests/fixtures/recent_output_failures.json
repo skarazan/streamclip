@@ -1,0 +1,19 @@
+[
+  {
+    "output": "01_caseoh-can-t-believe-granny-s-new-look.mp4",
+    "duration_s": 31.57,
+    "failure": "creator dashboard appears during the joke and the clip trails after the payoff",
+    "protected_by": ["dashboard_ocr", "final_arc_tail", "archetype_budget"]
+  },
+  {
+    "output": "02_caseoh-found-his-voice-twin-in-a-horror-.mp4",
+    "duration_s": 36.84,
+    "failure": "slow NPC dialogue dominates before the streamer's actual joke",
+    "protected_by": ["button_role", "ordered_arc", "hard_duration_budget"]
+  },
+  {
+    "output": "03_caseoh-woke-up-in-the-wrong-dream.mp4",
+    "failure": "source cut ends before the real payoff around VOD 13653-13659",
+    "protected_by": ["button_quote_localization", "post_cut_arc_verification"]
+  }
+]

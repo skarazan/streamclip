@@ -1,4 +1,4 @@
-import Script from "next/script";
+import "./globals.css";
 
 export const metadata = {
   title: "StreamClip — your stream, clipped while you sleep",
@@ -9,7 +9,6 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <head>
-        <Script src="https://cdn.tailwindcss.com" strategy="beforeInteractive" />
         {/* fonts used by caption-style previews only; worker bundles its own TTFs */}
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
@@ -17,9 +16,7 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
       </head>
-      <body style={{ background: "#0a0a0f", color: "#e8e8f0" }}>
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

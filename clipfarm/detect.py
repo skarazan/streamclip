@@ -1,8 +1,10 @@
 """Pick the funniest moments: Claude scores the transcript, loudness breaks ties."""
 
 import json
+import hashlib
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
@@ -29,6 +31,12 @@ MOMENT_SCHEMA = {
                         "clutch_needs_replay", "other"]},
                     "trigger_quote": {"type": "string"},
                     "button_quote": {"type": "string"},
+                    "button_kind": {"type": "string", "enum": [
+                        "speech", "scream", "visual", "game_sound"]},
+                    "trigger_role": {"type": "string", "enum": [
+                        "streamer", "chat", "game", "npc", "video", "other"]},
+                    "button_role": {"type": "string", "enum": [
+                        "streamer", "game", "npc", "video", "other"]},
                     "self_contained": {"type": "boolean"},
                     "has_button": {"type": "boolean"},
                     "start": {"type": "number"},
@@ -38,7 +46,8 @@ MOMENT_SCHEMA = {
                     "hook": {"type": "string"},
                 },
                 "required": ["reason", "archetype", "trigger_quote",
-                             "button_quote", "self_contained", "has_button",
+                             "button_quote", "button_kind", "trigger_role",
+                             "button_role", "self_contained", "has_button",
                              "start", "end", "score", "title", "hook"],
                 "additionalProperties": False,
             },
@@ -73,12 +82,50 @@ not just the loudest word. A teammate/chat reaction line after the peak
 gameplay payoff reads unlikeable, never clip it.
 CHANNEL DATA: stakes-in-title wins big — "JYNXZI AMAZING GOAL IN ROCKETLEAGUE"
 21k views, "JYNXZI is 2 WINS AWAY from DIAMOND" 11.5k. Generic verb titles
-flop — "JYNXZI scores a POWER SHOT" (same game!) got 26 views. ALWAYS name
-JYNXZI + the stakes/outcome, with the peak moment word in CAPS.""",
+flop — "JYNXZI scores a POWER SHOT" (same game!) got 26 views. Name JYNXZI
+and make the competitive stakes specific, but follow PACKAGING MODE on whether
+the outcome must stay hidden.""",
     "generic": """{streamer} is a gaming streamer. Viewers clip: big comedic
 reactions, rage moments, absurd one-liners, chat interactions, screaming fits,
 unexpected jokes, self-roasts, game fails with big verbal reactions.""",
 }
+
+TITLE_PACKAGING = {
+    "curiosity": """PACKAGING MODE — CURIOSITY GAP:
+- Open ONE unanswered question in the title and on-screen hook.
+- Withhold the payoff. Never summarize "X happens, then Y happens" and never
+  quote the button/punchline.
+- Promise the tension honestly; the viewer should need the clip to resolve it.
+Example shape: "CaseOh realized the crowd saw everything…".""",
+    "stakes": """PACKAGING MODE — STAKES FIRST:
+- Lead with the goal, constraint, or consequence before the attempt.
+- Do not reveal whether it succeeds or quote the final reaction.
+- Prefer a specific stake over generic words like crazy or hilarious.
+Example shape: "CaseOh had one chance to save him".""",
+    "reaction": """PACKAGING MODE — REACTION TEASE:
+- Promise an unusual or contradictory reaction.
+- Conceal either the exact trigger or punchline so an open loop remains.
+- Never claim screaming or panic unless the audio evidence proves it.
+- Ground the title in one CONCRETE odd detail, action, goal, or contradiction
+  from the setup. The title should create a specific question, not merely
+  "what happened?"
+- BAN adjective-slot templates: "X's UNHINGED reaction to this", "X was NOT
+  ready for this", "X LOST IT during this", "X's UNEXPECTED logic", and
+  generic "reaction/incident/moment" wording. Those summarize emotion without
+  giving the viewer a reason to care.
+- Use natural capitalization; do not shout a random adjective in ALL CAPS.
+Example shape: "The bathroom had a window in the worst place".""",
+    "quote": """PACKAGING MODE — SETUP QUOTE:
+- Build the title from a short provocative fragment of the trigger/setup.
+- Never use the button or punchline as the quote.
+- Add only enough framing to make the setup legible; keep the answer hidden.
+Example shape: "“You all just witnessed that…”".""",
+}
+
+
+def title_packaging(strategy: str) -> str:
+    return TITLE_PACKAGING.get(strategy, TITLE_PACKAGING["curiosity"])
+
 
 SYSTEM = """You are the lead editor of a Twitch highlights Shorts channel. You
 find moments a professional clip editor would cut into a standalone 15-28s
@@ -86,6 +133,8 @@ YouTube Short. You are ruthless: most of any stream is NOT clip-worthy, and a
 mediocre pick wastes an upload slot.
 
 {persona}
+
+{packaging}
 
 You get transcript lines as `[seconds] text`. Delivery tags measured from the
 actual audio: [SCREAM]/[loud] = volume, [rapid] = excited fast speech,
@@ -113,6 +162,9 @@ seconds). Untagged lines were spoken at normal volume. Rules:
   needing anything from 10 minutes earlier fails, no matter how funny
 - has_button: true if the clip ends on a payoff (tag joke, reveal, reaction
   line) rather than trailing off after the peak
+- label the evidence: button_kind is speech, scream, visual, or game_sound;
+  trigger_role and button_role identify who/what owns each beat. A game/NPC/
+  video button is not a streamer Short and must not be returned
 - score 1-10, calibrated against the WHOLE multi-hour stream, not this chunk:
   10 = the best moment of the entire stream, 8-9 = elite (most chunks have
   NONE), 6-7 = solid, 5 = borderline. Skip anything under 5. Never inflate —
@@ -139,14 +191,12 @@ seconds). Untagged lines were spoken at normal volume. Rules:
   If the moment involves a guess, answer, or reveal (word games, quizzes,
   "wait is it X?"), the clip MUST include the reveal and the reaction to it —
   never end during the guessing
-- title formula (from this channel's real analytics): STREAMER NAME + the
-  stakes/outcome + the peak moment word in CAPS. "JYNXZI AMAZING GOAL IN
-  ROCKETLEAGUE" got 21,000 views; "JYNXZI scores a POWER SHOT" (same game, no
-  stakes, generic verb) got 26. Max 90 chars, no clickbait lies
+- title: follow PACKAGING MODE. Max 72 characters, concrete, no clickbait
+  lies, no generic "funny moment" language, and do not reveal the button
 - hook: a short on-screen overlay line (3-8 words, sentence case) that teases the
-  moment without spoiling the punchline, e.g. "Can you guess why he is *mad*?" or
-  "Still not *finished*...". Wrap exactly ONE emotional keyword in *asterisks* —
-  it gets rendered in color.
+  moment without spoiling the punchline. It must create a reason to watch the
+  next beat, not summarize what viewers already see. Wrap exactly ONE
+  emotional keyword in *asterisks* — it gets rendered in color.
 - reason: one short sentence why it works
 Return at most 8 moments per transcript chunk. Quality over quantity."""
 
@@ -168,10 +218,22 @@ RERANK_SCHEMA = {
                     "reason": {"type": "string"},
                     "trigger_quote": {"type": "string"},
                     "button_quote": {"type": "string"},
+                    "button_kind": {"type": "string", "enum": [
+                        "speech", "scream", "visual", "game_sound"]},
+                    "trigger_role": {"type": "string", "enum": [
+                        "streamer", "chat", "game", "npc", "video", "other"]},
+                    "button_role": {"type": "string", "enum": [
+                        "streamer", "game", "npc", "video", "other"]},
+                    "archetype": {"type": "string"},
+                    "decision": {"type": "string", "enum": [
+                        "post", "bench", "reject"]},
+                    "reject_reason": {"type": "string"},
                 },
                 "required": ["id", "post_score", "start", "end",
                              "title", "hook", "reason",
-                             "trigger_quote", "button_quote"],
+                             "trigger_quote", "button_quote", "button_kind",
+                             "trigger_role", "button_role", "archetype",
+                             "decision", "reject_reason"],
                 "additionalProperties": False,
             },
         }
@@ -188,6 +250,8 @@ posted. Most candidates are NOT worth posting — the channel's reputation is
 "3 post-ready bangers, not 100 maybes".
 
 {persona}
+
+{packaging}
 
 For close calls, explicitly compare the two candidates in your reasoning —
 which first-2-seconds is the stronger scroll-stopper, which has the cleaner
@@ -223,12 +287,22 @@ These are machine-checked downstream — but do NOT cut candidates just
 because quoting is hard; keep 5-6 candidates whenever the material allows
 (the bench matters: downstream checks pick the best). For nonverbal payoffs
 (pure scream) quote the last intelligible line before it.
+Return EVERY candidate exactly once, ordered best to worst. Mark each as
+`post`, `bench`, or `reject`; downstream deterministic gates use the bench to
+replace a failed post candidate. Give a concrete reject_reason for rejects.
+Label button_kind, trigger_role, and button_role. A game/NPC/video may be the
+trigger, but only the streamer's own speech or scream can be the button.
 Also return tightened start/end as ABSOLUTE stream seconds — transcript lines
 carry [seconds] markers; anchor your cuts to them, never to offsets within the
-snippet. Stay within 20s of the suggestion, 18-40s long, peak in the final
-third. Return a sharper title + hook when you can.
-hook: 3-8 words, sentence case, exactly ONE emotional keyword wrapped in
-*asterisks*, never spoils the punchline.
+snippet. Stay within 20s of the suggestion, 18-45s long, peak in the final
+third. A dense 38-45s story is better than an abrupt 20s fragment; reject or
+cut dead time, not useful setup/escalation. Return a new title + hook for every
+kept clip, following PACKAGING
+MODE. The title is packaging, not a plot synopsis: never state both cause and
+resolution, never use "then" to walk through the sequence, and never reveal
+the quoted button. The hook is 3-8 words, sentence case, exactly ONE emotional
+keyword wrapped in *asterisks*. It must open a loop in the first seconds, not
+describe the entire clip.
 Candidates come from two sources and you are the arbiter: some were clipped
 live by viewers (tagged [CROWD GROUND TRUTH: N viewers clipped this]), the
 rest were found by scoring the transcript. Judge purely on which makes the
@@ -277,11 +351,18 @@ class Moment:
     combined: float = field(default=0.0)
     edited: bool = False  # boundaries hand-tightened by the editor pass
     crowd: int = 0        # distinct humans who clipped this live (ground truth)
-    crowd_peak: float = 0.0  # cluster median start = where the payoff lives
+    crowd_anchor: float = 0.0  # local mode of Twitch clip START timestamps
+    crowd_peak: float = 0.0  # deprecated cache field; never treated as payoff
     source: str = ""      # provenance: "crowd" (viewer clips) or "ai" (LLM)
     trigger_quote: str = ""  # editor's quoted cause — must appear in the clip
     button_quote: str = ""   # editor's quoted payoff — must appear in the clip
     protect_start: float = -1.0  # trigger start _trim_head must not cross
+    archetype: str = "other"
+    button_kind: str = "speech"
+    trigger_role: str = "unknown"
+    button_role: str = "streamer"
+    decision: str = "bench"
+    reject_reason: str = ""
 
 
 def _transcript_lines(words: list[Word],
@@ -527,15 +608,22 @@ def _score_chunk_openai(client, model: str, body: str, system: str = None,
 
     def _create(**kw):
         # free tiers rate-limit hard; back off and retry
-        for attempt in range(5):
+        for attempt in range(3):
             try:
                 return client.chat.completions.create(**kw)
             except Exception as e:
-                if "429" in str(e) or "rate" in str(e).lower():
-                    _time.sleep(30 * (attempt + 1))
+                msg = str(e).lower()
+                # Daily/account quota exhaustion does not improve by sleeping;
+                # fail over immediately. Only transient rate pressure backs
+                # off, and the whole fallback chain stays under two minutes.
+                permanent = any(x in msg for x in (
+                    "current quota", "quota exceeded", "per day",
+                    "billing details", "session limit"))
+                if ("429" in msg or "rate" in msg) and not permanent:
+                    _time.sleep(15 * (attempt + 1))
                     continue
                 raise
-        raise RuntimeError("rate-limited after 5 retries")
+        raise RuntimeError("rate-limited after 3 retries")
 
     try:
         kw = {}
@@ -587,15 +675,18 @@ def _client_provider(primary: str, base_url: str | None,
             c = anthropic.Anthropic()
         elif name == primary and base_url:
             c = OpenAI(base_url=base_url,
-                       api_key=os.environ[api_key_env or "OPENAI_API_KEY"])
+                       api_key=os.environ[api_key_env or "OPENAI_API_KEY"],
+                       timeout=60.0, max_retries=0)
         elif name.startswith("gemini"):
             c = OpenAI(base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                       api_key=os.environ["GEMINI_API_KEY"])
+                       api_key=os.environ["GEMINI_API_KEY"],
+                       timeout=60.0, max_retries=0)
         elif _is_openai(name):
-            c = OpenAI()
+            c = OpenAI(timeout=60.0, max_retries=0)
         else:  # llama/qwen/etc -> Groq
             c = OpenAI(base_url="https://api.groq.com/openai/v1",
-                       api_key=os.environ["GROQ_API_KEY"])
+                       api_key=os.environ["GROQ_API_KEY"],
+                       timeout=60.0, max_retries=0)
         _clients[name] = c
         return c
 
@@ -609,12 +700,14 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
                    fallback_models: list[str] | None = None,
                    profile: np.ndarray | None = None,
                    persona: str = "generic",
-                   chat: list[tuple[float, str]] | None = None
+                   chat: list[tuple[float, str]] | None = None,
+                   title_strategy: str = "curiosity",
                    ) -> list[Moment]:
     _models = [model] + [m for m in (fallback_models or []) if m != model]
     persona_txt = PERSONAS.get(persona, PERSONAS["generic"]).format(
         streamer=streamer)
-    system = SYSTEM.format(persona=persona_txt)
+    system = SYSTEM.format(
+        persona=persona_txt, packaging=title_packaging(title_strategy))
     _client_for = _client_provider(model, base_url, api_key_env)
 
     lines = sorted(_transcript_lines(words, profile)
@@ -687,6 +780,12 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
                     start=float(m["start"]), end=float(m["end"]),
                     score=float(m["score"]), title=m["title"],
                     hook=m.get("hook", ""), reason=m.get("reason", ""),
+                    archetype=m.get("archetype", "other"),
+                    trigger_quote=m.get("trigger_quote", ""),
+                    button_quote=m.get("button_quote", ""),
+                    button_kind=m.get("button_kind", "speech"),
+                    trigger_role=m.get("trigger_role", "unknown"),
+                    button_role=m.get("button_role", "streamer"),
                 ))
     return moments
 
@@ -763,7 +862,8 @@ def smart_cut(words: list[Word], start: float, end: float,
     if not data or not data.get("keep"):
         return None
 
-    # validate: in-bounds, chronological, non-trivial, and the BUTTON survives
+    # validate: in-bounds, chronological, non-trivial, and both evidence
+    # endpoints survive. An LLM cut is a proposal, never its own verifier.
     spans = []
     for k in data["keep"]:
         s, e = float(k["start"]), float(k["end"])
@@ -787,8 +887,13 @@ def smart_cut(words: list[Word], start: float, end: float,
     # with no punchline — reject and fall back
     kept_text = " ".join(w.text.lower() for w in clip_ws
                          if any(s <= w.start <= e for s, e in merged))
+    ttoks = [t for t in re.sub(r"[^a-z0-9 ]", " ", trigger_quote.lower()).split()
+             if len(t) > 3]
     btoks = [t for t in re.sub(r"[^a-z0-9 ]", " ", button_quote.lower()).split()
              if len(t) > 3]
+    if ttoks and sum(1 for t in set(ttoks) if t in kept_text) < 0.5 * len(set(ttoks)):
+        log("  smart-cut dropped the trigger -> fallback to silence cuts")
+        return None
     if btoks and sum(1 for t in set(btoks) if t in kept_text) < 0.5 * len(set(btoks)):
         log("  smart-cut dropped the button -> fallback to silence cuts")
         return None
@@ -804,14 +909,17 @@ def rerank_moments(moments: list[Moment], words: list[Word],
                    streamer: str = "the streamer",
                    fallback_models: list[str] | None = None,
                    shortlist: int = 15, post_bar: int = 7,
-                   persona: str = "generic") -> list[Moment]:
+                   persona: str = "generic",
+                   cache_dir: Path | None = None,
+                   title_strategy: str = "curiosity",
+                   desired_count: int = 3) -> list[Moment]:
     """Editor pass: chunk scoring grades on a curve (every chunk hands out
     10s), so the shortlist gets re-judged head-to-head in ONE call, with the
     measured loudness and full transcript context the chunk scorer never saw.
     Only candidates clearing the posting bar survive; boundaries/titles/hooks
     come back tightened."""
-    if len(moments) <= 1:
-        return moments
+    if not moments:
+        return []
     # a clip window must contain actual speech — hallucinated timestamps and
     # music-only stretches have none, no matter how loud they measured
     starts = np.array([w.start for w in words])
@@ -857,17 +965,46 @@ def rerank_moments(moments: list[Moment], words: list[Word],
             + f"the\n  setup is inside the suggested bounds):\n{snippet}")
     body = "\n\n".join(blocks)
 
+    sysmsg = EDITOR.format(
+        streamer=streamer,
+        packaging=title_packaging(title_strategy),
+        persona=PERSONAS.get(persona, PERSONAS["generic"])
+        .format(streamer=streamer))
+    desired_count = max(1, int(desired_count))
+    inventory_target = min(len(cand), desired_count + max(3, desired_count // 2))
+    sysmsg += f"""
+
+BATCH SIZE: The user requested {desired_count} finished clips. Build a truthful
+replacement bench of about {inventory_target} post/bench candidates when the
+material genuinely supports it, because deterministic arc and media checks may
+still remove some. Search each supplied transcript for tighter alternative
+bounds before rejecting it. Never invent quotes, retain filler, or lower the
+story/retention bar merely to hit the number."""
     data = None
+    cache_file = None
+    if cache_dir is not None:
+        key = hashlib.sha256(
+            (model + "\0" + sysmsg + "\0" + body).encode()).hexdigest()[:20]
+        cache_file = Path(cache_dir) / f"editor-{key}.json"
+        if cache_file.exists():
+            try:
+                data = json.loads(cache_file.read_text())
+                log(f"  editor judgment cache: {cache_file.name}")
+            except Exception:
+                data = None
     for name in [model] + [m for m in (fallback_models or []) if m != model]:
+        if data is not None:
+            break
         try:
             data = _fn_for(name)(
                 _client_provider(model, base_url, api_key_env)(name), name,
-                body,
-                EDITOR.format(
-                    streamer=streamer,
-                    persona=PERSONAS.get(persona, PERSONAS["generic"])
-                    .format(streamer=streamer)),
+                body, sysmsg,
                 schema=RERANK_SCHEMA)
+            if cache_file is not None:
+                cache_file.parent.mkdir(parents=True, exist_ok=True)
+                tmp = cache_file.with_suffix(".tmp")
+                tmp.write_text(json.dumps(data, indent=2))
+                tmp.replace(cache_file)
             break
         except Exception as e:
             log(f"  ! editor pass on {name} failed "
@@ -877,39 +1014,39 @@ def rerank_moments(moments: list[Moment], words: list[Word],
         return moments
 
     keep: list[Moment] = []
+    seen: set[int] = set()
     for c in data.get("clips", []):
-        if not (1 <= int(c["id"]) <= len(cand)) or c["post_score"] < post_bar:
+        if not (1 <= int(c["id"]) <= len(cand)) or int(c["id"]) in seen:
             continue
+        seen.add(int(c["id"]))
         m = cand[int(c["id"]) - 1]
         s, e = float(c["start"]), float(c["end"])
         lo, hi = (m.start - 90, m.end + 40) if m.crowd else (m.start - 25,
                                                               m.end + 15)
-        # CROWD PEAK INVARIANT: the cluster's median start is where the
-        # crowd's fingers agreed the payoff happened (clip button captures
-        # the preceding ~30s). Nonverbal payoffs are invisible to the editor
-        # (speech-gated), so its bounds may trim around the peak but must
-        # NEVER exclude it: peak-in-final-third by construction.
-        if m.crowd and m.crowd_peak:
+        # Twitch vod_offset is the published clip START, not the button press
+        # or payoff. It may guide a context window but must never force a cut.
+        if m.crowd:
             n_words = sum(1 for w in words if m.start <= w.start <= m.end)
             if n_words < 15:  # stinger: crowd bounds verbatim, title only
-                m.start = max(m.start, m.crowd_peak - 24.0)
-                m.end = m.crowd_peak + 8.0
+                if lo <= s < e <= hi and 8 <= e - s <= 32:
+                    m.start, m.end = s, e
             else:
                 if lo <= s < e <= hi and 14 <= e - s <= 45:
                     m.start, m.end = s, e
-                m.start = min(m.start, m.crowd_peak - 6.0)
-                # end sits just past the payoff — never let it trail (a clip
-                # that runs 15s past the moment is what made 53-73s shorts)
-                m.end = min(max(m.end, m.crowd_peak + 8.0), m.crowd_peak + 13.0)
-                if m.end - m.start > 34.0:  # keep the END (payoff side)
-                    m.start = m.end - 34.0
                 m.edited = True
-        elif lo <= s < e <= hi and 14 <= e - s <= 34:
+        elif lo <= s < e <= hi and 14 <= e - s <= 45:
             m.start, m.end = s, e
             m.edited = True
         m.score = float(c["post_score"])
         m.trigger_quote = c.get("trigger_quote", "")
         m.button_quote = c.get("button_quote", "")
+        m.button_kind = c.get("button_kind", "speech")
+        m.trigger_role = c.get("trigger_role", "unknown")
+        m.button_role = c.get("button_role", "streamer")
+        m.archetype = c.get("archetype", m.archetype)
+        m.decision = c.get(
+            "decision", "post" if m.score >= post_bar else "bench")
+        m.reject_reason = c.get("reject_reason", "")
         # TRIGGER PULLBACK: if the trigger phrase also occurs BEFORE the
         # chosen start (streamer echoing a donation/message read earlier),
         # open on the ORIGINAL read so the viewer sees the cause. Safe now
@@ -938,11 +1075,25 @@ def rerank_moments(moments: list[Moment], words: list[Word],
         if c.get("reason"):
             m.reason = c["reason"]
         keep.append(m)
-    log(f"  editor pass kept {len(keep)}/{len(cand)} candidates")
-    if not keep:
-        # nothing cleared the bar; ship the least-bad one rather than zero
-        log("  editor kept nothing -> shipping top scorer candidate only")
-        keep = [cand[0]]
+    # Schema-compliant models should return every candidate. Retain omissions
+    # as low-priority bench entries so a transient model omission cannot
+    # destroy the replacement pool.
+    for i, m in enumerate(cand, 1):
+        if i not in seen:
+            m.decision = "bench"
+            m.reject_reason = "editor omitted candidate"
+            keep.append(m)
+    judged_ids = {id(m) for m in cand}
+    for m in moments:
+        if id(m) not in judged_ids:
+            m.decision = "bench"
+            m.reject_reason = "below editor shortlist"
+            keep.append(m)
+    keep.sort(key=lambda m: (
+        {"post": 0, "bench": 1, "reject": 2}.get(m.decision, 1),
+        -m.score, -m.combined))
+    log(f"  editor scored {len(keep)}/{len(cand)} candidates "
+        f"({sum(m.decision == 'post' for m in keep)} post-ready)")
     return keep
 
 
@@ -1144,7 +1295,12 @@ def select_clips(moments: list[Moment], profile: np.ndarray, count: int,
     # same 10 minutes is one clip posted thrice), then fill remaining slots
     # from whatever's left if spread alone can't reach count
     picked: list[Moment] = []
-    ranked = sorted(moments, key=lambda x: x.combined, reverse=True)
+    ranked = sorted(
+        moments,
+        key=lambda x: (
+            {"post": 2, "bench": 1, "reject": 0}.get(x.decision, 1),
+            x.combined),
+        reverse=True)
     for gap in (min_gap_s, 0.0):
         for m in ranked:
             if m in picked or any(

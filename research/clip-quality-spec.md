@@ -79,11 +79,17 @@ per stream, free. Implementation:
 - Pagination caps ~1000/window → split windows on high-clip channels
 
 **Clustering (many people clip the same moment seconds apart):**
-- Group clips whose vod_offsets fall within ~45s and overlap in span → one MOMENT
+- Twitch defines `vod_offset` as the **start of the published clip**, not the
+  button press or payoff timestamp. It is setup-window evidence only.
+- Exact clip IDs are deduplicated; one creator contributes at most one vote
+  inside a six-second start neighborhood.
+- Smooth start timestamps (6s Gaussian), find independent local modes, and
+  assign each clip directly to its nearest mode within 15s. Do not use
+  single-link/DBSCAN chaining: A≈B and B≈C must never imply A≈C.
 - Moment strength = distinct creator_ids (primary; dedupes power-clippers)
   + log(summed view_count) (secondary; views lag hours-days — recency-aware)
-- **Median cluster start = the crowd's judgment of where the setup begins** — solves cut-in
-  placement better than any prompt
+- Median start within each bounded mode is a robust context anchor. The
+  trigger/button matcher—not the crowd timestamp—determines final boundaries.
 - `is_featured` = streamer/editor manually vouched → bonus weight
 - Sparse/zero clips (small channels, clips disabled) → fall back to current signal stack
 
@@ -103,7 +109,7 @@ weight changes must beat this metric before shipping (protects against reward-ha
 ## 6. Scoring architecture v3 (crowd-first)
 
 ```
-1. Twitch clips API → cluster → top ~12-15 crowd moments (FREE, human-judged)
+1. Twitch clips API → bounded start modes → top 24-30 candidates
 2. + "clip that" callouts + chat z-spikes not already covered → candidate set
 3. Transcribe ONLY ±2min around candidates (~30-40min audio vs 7h — Groq free tier trivial)
 4. LLM per candidate (gpt-5-mini or fallback — small prompts):
@@ -111,10 +117,15 @@ weight changes must beat this metric before shipping (protects against reward-ha
    b. rubric check, required elements: what's the trigger? what's the reversal?
       is it self-contained? where's the button? (proving understanding before judging —
       beats 1-10 scores in every study)
-   c. boundaries: crowd median start, utterance-complete end (existing _settle_end)
-5. Final rank = crowd strength (dominant) × archetype-compatibility × rubric completeness
+   c. propose boundaries plus verbatim trigger/button quotes and speaker roles
+5. Deterministic gate localizes trigger then button in timestamped words,
+   rejects NPC/game/video-owned payoffs, and requires payoff in the final 38%
+   with <=2.75s tail on the actual post-cut timeline
+6. Final rank = crowd strength (dominant) × archetype-compatibility × rubric completeness
    — LLM taste NEVER outranks crowd signal
-6. Render (existing pipeline: jump-cuts, captions, facecam)
+7. Render from an archetype duration budget, inspect 1080x1920/CFR/audio/A-V
+   sync plus conservative creator-dashboard OCR, and refill from the bench
+   until the requested count passes or verified candidates are exhausted
 ```
 
 Cost per stream: clips API free, chat free, ~35min Groq audio free, ~15 small LLM calls

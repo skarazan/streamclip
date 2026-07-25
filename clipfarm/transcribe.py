@@ -137,16 +137,25 @@ def transcribe_groq(audio_path: Path, cache_path: Path | None = None,
 
 def transcribe_clips_groq(items: list[tuple[Path, float]],
                           model: str = "whisper-large-v3-turbo",
-                          context: str = "") -> list[list[Word]]:
+                          context: str = "",
+                          max_workers: int = 3) -> list[list[Word]]:
     """Caption-grade transcription of clip segments via Groq — ~90s of audio
-    costs ~$0.001 and returns in seconds."""
+    costs ~$0.001 and returns in seconds.
+
+    Each clip is independent. A small bounded pool overlaps local audio
+    extraction with Groq uploads without creating an unbounded free-tier burst.
+    Results retain input order.
+    """
+    from concurrent.futures import ThreadPoolExecutor
     import subprocess
     import tempfile
 
-    out: list[list[Word]] = []
     with tempfile.TemporaryDirectory() as td:
-        for j, (media, offset_s) in enumerate(items):
-            audio = Path(td) / f"seg_{j:02d}.ogg"
+        temp = Path(td)
+
+        def one(index_item: tuple[int, tuple[Path, float]]) -> list[Word]:
+            j, (media, offset_s) = index_item
+            audio = temp / f"seg_{j:02d}.ogg"
             subprocess.run(
                 [ffmpeg_path(), "-y", "-v", "error", "-i", str(media),
                  "-vn", "-ac", "1", "-ar", "16000",
@@ -154,9 +163,12 @@ def transcribe_clips_groq(items: list[tuple[Path, float]],
                 check=True, capture_output=True)
             # context prompt biases decoding — screamed/slurred lines
             # resolve to plausible words instead of gibberish
-            out.append(_groq_words(audio, model, offset_s=offset_s,
-                                   prompt=context))
-    return out
+            return _groq_words(
+                audio, model, offset_s=offset_s, prompt=context)
+
+        workers = max(1, min(int(max_workers), len(items) or 1))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return list(pool.map(one, enumerate(items)))
 
 
 def transcribe_clips(items: list[tuple[Path, float]], model_name: str,

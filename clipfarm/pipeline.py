@@ -38,7 +38,8 @@ def _ai_moments(cfg, words, profile, chat, llm, report, vod_work):
             fallback_models=llm.get("fallback_models"), profile=profile,
             persona=cfg.get("persona", "generic"), chat=chat,
             title_strategy=cfg.get("style", {}).get(
-                "title_strategy", "curiosity"))
+                "title_strategy", "curiosity"),
+            reasoning_effort=llm.get("reasoning_effort"))
         if scored:
             mom_cache.write_text(_json.dumps(
                 [{"start": m.start, "end": m.end, "score": m.score,
@@ -278,7 +279,8 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                 fallback_models=llm.get("fallback_models"), profile=profile,
                 persona=cfg.get("persona", "generic"), chat=chat,
                 title_strategy=cfg.get("style", {}).get(
-                    "title_strategy", "curiosity"))
+                    "title_strategy", "curiosity"),
+                reasoning_effort=llm.get("reasoning_effort"))
             if moments:
                 mom_cache.write_text(json.dumps(
                     [{"start": m.start, "end": m.end, "score": m.score,
@@ -317,7 +319,12 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
 def run(cfg: dict, vod_url: str | None = None) -> dict:
     print(f"pipeline {PIPELINE_VERSION}")
     t0 = time.time()
-    report = cfg.get("_progress") or (lambda stage, detail="": None)
+    # `substage` splits a coarse customer-facing stage into what it actually
+    # spent time on. "rendering" measured 67% of wall time, which reads as
+    # "encoding is the bottleneck" — but it also covers facecam, the caption
+    # pass, master downloads and OCR QA, and a real encode is ~3s. Cost and
+    # GPU decisions were being made against that mislabeled bucket.
+    report = cfg.get("_progress") or (lambda stage, detail="", **kw: None)
     check_disk(cfg)
 
     work = PROJECT_ROOT / "work"
@@ -423,7 +430,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
             return None
         return got
 
-    report("clipping", f"downloading {len(clips)} candidate moments")
+    report("clipping", f"downloading {len(clips)} candidate moments",
+           substage="probe_download")
     download_workers = min(
         max(1, int(cfg["clips"].get("download_workers", 3))), len(clips))
     with ThreadPoolExecutor(max_workers=download_workers) as pool:
@@ -446,7 +454,7 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         import numpy as np
 
         from . import facecam
-        report("rendering", "locating facecam")
+        report("rendering", "locating facecam", substage="facecam")
         cam_cache = vod_work / "cam_box.json"
         identity, pos_box = None, None
         if cam_cache.exists():
@@ -514,7 +522,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     cap_words: list = [None] * len(segs)
     items = [(seg, m.start) for m, seg in zip(clips, segs)]
     if provider == "groq":
-        report("rendering", "transcribing clips with the accurate model")
+        report("rendering", "transcribing clips with the accurate model",
+               substage="caption_pass")
         print(f"Caption pass: groq turbo over {len(segs)} segments...")
         try:
             ctx = (f"Twitch gaming stream by {cfg.get('streamer_name', 'a streamer')}. "
@@ -529,7 +538,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
                 cap_words = transcribe.transcribe_clips(
                     items, cap_model, cfg["transcribe"]["compute_type"])
     elif cap_model and cap_model != t_model:
-        report("rendering", "transcribing clips with the accurate model")
+        report("rendering", "transcribing clips with the accurate model",
+               substage="caption_pass")
         print(f"Caption pass: {cap_model} over {len(segs)} segments...")
         cap_words = transcribe.transcribe_clips(
             items, cap_model, cfg["transcribe"]["compute_type"])
@@ -588,7 +598,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     source_arcs = [source_arcs[i] for i in keep_idx]
 
     # 9. render — ffmpeg is subprocess-bound, so clips render in parallel
-    report("rendering", f"rendering {len(clips)} clips")
+    report("rendering", f"rendering {len(clips)} clips",
+           substage="encode_and_qa")
     top_frac = style.get("split_top", 0.42)
 
     manifest = {
@@ -815,7 +826,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
             cand_i, (m, probe, cam, source_arc) = entry
             report(
                 "rendering",
-                f"{len(results)}/{want} ready — fetching final-quality winner")
+                f"{len(results)}/{want} ready — fetching final-quality winner",
+                substage="master_download")
             master = fetch.download_segment(
                 vod_url, m.start, m.end,
                 vod_work / f"master_c{cand_i + 1:02d}.mp4",

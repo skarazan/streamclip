@@ -8,29 +8,43 @@ import { rest, serviceHeaders } from "./editJobs";
 import { readServiceHealth } from "./serviceHealth";
 import { jobCost } from "./llmPrices";
 
+// Legacy admin marker. `plan` is billing's column — Stripe rewrites it on
+// checkout and cancellation — so admin rights live in `users.is_admin`. These
+// values remain the fallback until 20260725_admin_flag.sql is applied.
 export const FOUNDER_PLANS = ["founder", "internal"];
 
+const isAdmin = (row) =>
+  row?.is_admin === true ||
+  (row?.is_admin === undefined && FOUNDER_PLANS.includes(row?.plan));
+
 /**
- * Founder gate. Returns the profile row when the signed-in user is allowed to
+ * Admin gate. Returns the profile row when the signed-in user is allowed to
  * see house financials, otherwise null — callers turn that into a 404, not a
  * 403, so the route's existence isn't advertised.
  *
- * The plan is read with the service key: `users` RLS lets a user select their
- * own row, but the gate should not depend on a policy staying that way.
+ * Read with the service key: `users` RLS lets a user select their own row,
+ * but the gate should not depend on a policy staying that way.
  */
 export async function founderProfile(sb) {
   const {
     data: { user },
   } = await sb.auth.getUser();
   if (!user) return null;
-  const rows = await fetch(
-    rest(`/users?id=eq.${user.id}&select=id,twitch_login,plan`),
-    { headers: serviceHeaders(), cache: "no-store" }
-  )
-    .then((r) => (r.ok ? r.json() : []))
-    .catch(() => []);
+  const select = async (columns) =>
+    fetch(rest(`/users?id=eq.${user.id}&select=${columns}`), {
+      headers: serviceHeaders(),
+      cache: "no-store",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+  // Additive rollout: the old schema stays usable until the founder applies
+  // the migration, and `is_admin` being absent is what selects the fallback.
+  const rows =
+    (await select("id,twitch_login,plan,is_admin")) ||
+    (await select("id,twitch_login,plan")) ||
+    [];
   const profile = rows?.[0];
-  if (!profile || !FOUNDER_PLANS.includes(profile.plan)) return null;
+  if (!profile || !isAdmin(profile)) return null;
   return profile;
 }
 
@@ -117,11 +131,19 @@ export async function collectCosts(now = Date.now()) {
     fetch(rest(jobsQuery), { headers: serviceHeaders(), cache: "no-store" })
       .then((r) => (r.ok ? r.json() : []))
       .catch(() => []),
-    fetch(rest("/users?select=id,twitch_login,plan,credits"), {
+    fetch(rest("/users?select=id,twitch_login,plan,credits,is_admin"), {
       headers: serviceHeaders(),
       cache: "no-store",
     })
-      .then((r) => (r.ok ? r.json() : []))
+      .then((r) =>
+        r.ok
+          ? r.json()
+          : // Pre-migration schema: retry without the new column.
+            fetch(rest("/users?select=id,twitch_login,plan,credits"), {
+              headers: serviceHeaders(),
+              cache: "no-store",
+            }).then((f) => (f.ok ? f.json() : []))
+      )
       .catch(() => []),
     fetch(rest("/clips?select=job_id&limit=5000"), {
       headers: serviceHeaders(),
@@ -233,8 +255,9 @@ export async function collectCosts(now = Date.now()) {
     : null;
 
   // Credits already sold but not yet burned — future compute we owe.
+  // Admin balances are house money, not a liability.
   const creditsOutstanding = (users || [])
-    .filter((u) => !FOUNDER_PLANS.includes(u.plan))
+    .filter((u) => !isAdmin(u))
     .reduce((sum, u) => sum + Number(u.credits || 0), 0);
 
   return {

@@ -278,3 +278,56 @@ endpoint retrieves it server-side, verifies the paid state and user ownership,
 then applies the same idempotent subscription/invoice or credit-pack ledger
 keys as the webhook. This safely converges webhook-first and redirect-first
 delivery and exposes a bounded setup message when the migration is missing.
+
+## 2026-07-25 — Admin rights are an account property, not a billing state
+
+`plan` is billing's column: Stripe writes starter/creator on checkout and
+churned on cancellation. It also carried "this account bypasses the
+own-channel rule and can see house financials", so one test checkout silently
+revoked the founder's bypass and 404'd them out of `/admin/costs`.
+
+Admin status moves to `users.is_admin` (`20260725_admin_flag.sql`, additive and
+idempotent). Billing never writes that column, so a subscription, a
+cancellation and a refund are all survivable.
+
+- Benefit: the two admin gates stop depending on a value another system owns.
+- Cost: one more column, and two read paths that must tolerate its absence.
+- Containment: both gates fall back to the legacy plan values while the
+  migration is unapplied; `AdminFlagTests` pins the checkout/cancel cases.
+
+## 2026-07-25 — Measure sub-stages before buying hardware
+
+`timings_s` put 66.7% of wall time in `rendering`, which reads as "encoding is
+the bottleneck" and satisfies the GPU gate in BUSINESS.md §6. It is the wrong
+conclusion: `rendering` also covers facecam identity, the Groq caption pass,
+final-quality master downloads and OCR QA, and a measured 1080x1920 encode of
+a 23s clip is ~3s at veryfast on eight cores.
+
+`progress.substage_s` now splits that bucket (`probe_download`, `facecam`,
+`caption_pass`, `master_download`, `encode_and_qa`) alongside the unchanged
+customer-facing `stage`. Additive key; sub-stage totals reconcile exactly with
+the coarse stage totals.
+
+- Benefit: cost and hardware decisions get attributed time instead of a label.
+- Cost: one more jsonb key per progress write.
+- Decision: the GPU question stays open until `substage_s` — not `timings_s` —
+  shows encoding above half of wall time.
+
+### Reasoning tokens are the LLM bill
+
+Measured on one real 8-minute chunk (VOD 2813202773, gpt-5-mini): the default
+effort spent 1792 of 1963 output tokens (91%) on hidden reasoning, billed at
+the $2/M output rate. `low` cut cost 37% and latency 46%; `minimal` cut cost
+41% but returned more moments at lower top scores — less selective, andeach extra
+candidate costs a segment download and a render downstream.
+
+Prompt caching needs no work: with an identical system prefix, 2560 of 2655
+input tokens came back cached at the 10x discount. An earlier zero-cache
+reading was an artifact of varying `reasoning_effort` between calls, which
+splits the cache key.
+
+`llm.reasoning_effort` is therefore config-gated and defaults to null (provider
+default, unchanged behaviour). It applies to chunk scoring and smart-cut only;
+the editor/judge pass keeps full reasoning. One chunk is not evidence about
+selection quality — A/B a full Tier-C VOD against `progress.llm_usage` before
+changing the default.

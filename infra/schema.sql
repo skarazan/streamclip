@@ -7,6 +7,9 @@ create table users (
   email text,
   yt_channel_id text,
   plan text not null default 'trial',          -- trial | starter | churned
+  -- Admin bypass, deliberately separate from `plan`: billing owns `plan` and
+  -- would otherwise revoke admin rights on any checkout or cancellation.
+  is_admin boolean not null default false,     -- own-channel bypass, /admin/costs
   credits int not null default 2,              -- trial = 2 VOD credits
   clips_per_stream int not null default 5,
   auto_clip boolean not null default true,

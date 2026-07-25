@@ -60,6 +60,17 @@ llm:
   base_url: null
   api_key_env: "OPENAI_API_KEY"
   chunk_minutes: 8      # small chunks: free-tier TPM limits
+  # Hidden-reasoning budget for CHUNK SCORING only (the editor/judge pass keeps
+  # the model default). null = provider default. Measured on one real 8-min
+  # chunk of VOD 2813202773 with gpt-5-mini:
+  #   default  1963 out tok (1792 reasoning = 91%)  23.5s  $0.0046
+  #   low      1115 out tok ( 704 reasoning)        12.7s  $0.0029
+  #   minimal  1038 out tok (   0 reasoning)        11.7s  $0.0027
+  # `minimal` returned MORE moments at LOWER top scores — less selective, and
+  # extra candidates cost segment downloads and renders downstream. `low` kept
+  # the highest-scoring pick of the three. n=1 chunk: A/B a full Tier-C VOD
+  # against progress.llm_usage before making a non-null value the default.
+  reasoning_effort: null
 
 # Visual style — matched to @CheeseDipClips
 style:

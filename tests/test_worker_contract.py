@@ -6,6 +6,33 @@ import httpx
 from worker import worker
 
 
+class AdminFlagTests(unittest.TestCase):
+    """A Stripe checkout must never revoke admin rights.
+
+    `plan` belongs to billing, which rewrites it on checkout and cancellation.
+    A test checkout once stripped the founder's own-channel bypass and locked
+    them out of /admin/costs, so admin status lives in `users.is_admin`.
+    """
+
+    def test_billing_cannot_revoke_admin_by_rewriting_plan(self):
+        founder = {"plan": "founder", "is_admin": True}
+        self.assertTrue(worker.is_admin(founder))
+        for billing_written_plan in ("starter", "creator", "churned"):
+            with self.subTest(plan=billing_written_plan):
+                after_checkout = {**founder, "plan": billing_written_plan}
+                self.assertTrue(worker.is_admin(after_checkout))
+
+    def test_plan_remains_the_marker_before_the_migration(self):
+        # 20260725_admin_flag.sql not applied yet: the column is simply absent
+        # from the row, and the legacy plan values still grant the bypass.
+        self.assertTrue(worker.is_admin({"plan": "founder"}))
+        self.assertTrue(worker.is_admin({"plan": "internal"}))
+        self.assertFalse(worker.is_admin({"plan": "starter"}))
+
+    def test_explicit_false_revokes_regardless_of_plan(self):
+        self.assertFalse(worker.is_admin({"plan": "founder", "is_admin": False}))
+
+
 class CreditContractTests(unittest.TestCase):
     def test_atomic_reservation_is_authoritative(self):
         response = Mock()

@@ -531,7 +531,8 @@ def llm_available(model: str, base_url: str | None = None,
 
 
 def _score_chunk_claude(client, model: str, body: str, system: str = None,
-                        schema: dict = None) -> dict:
+                        schema: dict = None,
+                        reasoning_effort: str | None = None) -> dict:
     import anthropic
     kwargs = {}
     if not model.startswith("claude-haiku"):
@@ -566,7 +567,8 @@ def _extract_json(text: str) -> dict:
 
 
 def _score_chunk_claude_code(client, model: str, body: str, system: str = None,
-                             schema: dict = None) -> dict:
+                             schema: dict = None,
+                             reasoning_effort: str | None = None) -> dict:
     """Score via the Claude Code CLI — runs on the user's Claude subscription,
     no API key needed."""
     import subprocess
@@ -601,7 +603,8 @@ def _score_chunk_claude_code(client, model: str, body: str, system: str = None,
 
 
 def _score_chunk_openai(client, model: str, body: str, system: str = None,
-                        schema: dict = None) -> dict:
+                        schema: dict = None,
+                        reasoning_effort: str | None = None) -> dict:
     """OpenAI-compatible endpoint (OpenAI, Groq, Gemini, OpenRouter, ...).
     Tries strict JSON schema first; many free endpoints don't support it,
     so falls back to prompt-enforced JSON."""
@@ -640,6 +643,13 @@ def _score_chunk_openai(client, model: str, body: str, system: str = None,
         kw = {}
         if "gemini-2.5" in model or "gemini-3" in model:
             kw["reasoning_effort"] = "none"
+        elif reasoning_effort and _is_openai(model):
+            # Measured on a real 8-minute chunk: gpt-5-mini spends ~91% of its
+            # output tokens on hidden reasoning at the default effort, and
+            # output is billed at 8x the input rate. The schema already forces
+            # a written `reason` before any score, so the visible chain of
+            # thought survives; this only trims the invisible half.
+            kw["reasoning_effort"] = reasoning_effort
         resp = _create(
             model=model,
             messages=messages,
@@ -655,9 +665,9 @@ def _score_chunk_openai(client, model: str, body: str, system: str = None,
         + json.dumps(schema))
     try:
         resp = _create(model=model, messages=messages,
-                       response_format={"type": "json_object"})
+                       response_format={"type": "json_object"}, **kw)
     except Exception:
-        resp = _create(model=model, messages=messages)
+        resp = _create(model=model, messages=messages, **kw)
     return _extract_json(resp.choices[0].message.content)
 
 
@@ -713,6 +723,7 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
                    persona: str = "generic",
                    chat: list[tuple[float, str]] | None = None,
                    title_strategy: str = "curiosity",
+                   reasoning_effort: str | None = None,
                    ) -> list[Moment]:
     _models = [model] + [m for m in (fallback_models or []) if m != model]
     persona_txt = PERSONAS.get(persona, PERSONAS["generic"]).format(
@@ -756,7 +767,8 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
         for m_i, m_name in enumerate(list(_models)):
             try:
                 data = _fn_for(m_name)(_client_for(m_name), m_name, body,
-                                       system)
+                                       system,
+                                       reasoning_effort=reasoning_effort)
                 if m_i > 0:
                     with lock:
                         log(f"  (scored with fallback model {m_name})")
@@ -848,6 +860,7 @@ def smart_cut(words: list[Word], start: float, end: float,
               model: str, base_url: str | None = None,
               api_key_env: str | None = None,
               fallback_models: list[str] | None = None,
+              reasoning_effort: str | None = None,
               log=print) -> list[tuple[float, float]] | None:
     """LLM condense: cut REDUNDANT TALKING (not just silence) to keep a
     talking-dense clip's trigger->reaction->payoff arc tight. Returns
@@ -866,7 +879,8 @@ def smart_cut(words: list[Word], start: float, end: float,
         try:
             data = _fn_for(name)(
                 _client_provider(model, base_url, api_key_env)(name), name,
-                body, sysmsg, schema=SMARTCUT_SCHEMA)
+                body, sysmsg, schema=SMARTCUT_SCHEMA,
+                reasoning_effort=reasoning_effort)
             break
         except Exception as e:
             log(f"  ! smart-cut on {name} failed ({type(e).__name__})")

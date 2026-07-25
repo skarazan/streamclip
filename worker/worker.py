@@ -119,6 +119,19 @@ def get_user(user_id: str) -> dict:
     return sb("GET", f"/rest/v1/users?id=eq.{user_id}").json()[0]
 
 
+# Legacy admin marker. `plan` belongs to billing — Stripe rewrites it on
+# checkout and cancellation — so admin rights live in `users.is_admin`.
+# These plan values stay the fallback until 20260725_admin_flag.sql is applied
+# (get_user selects *, so the key is simply absent on the old schema).
+LEGACY_ADMIN_PLANS = ("founder", "internal")
+
+
+def is_admin(user: dict) -> bool:
+    if "is_admin" in user:
+        return bool(user["is_admin"])
+    return user.get("plan") in LEGACY_ADMIN_PLANS
+
+
 def reserve_job_credits(job: dict, amount: int) -> tuple[bool, int]:
     try:
         rows = sb("POST", "/rest/v1/rpc/reserve_job_credits", json={
@@ -555,11 +568,11 @@ def process(job: dict) -> None:
 
     # own-content rule: the connected Twitch account is the abuse moat AND
     # the clean-IP position — you clip your channel, not someone else's.
-    # founder/internal accounts bypass for cross-streamer testing.
+    # Admin accounts bypass for cross-streamer testing.
     vod_chan = (info.get("channel") or "").lower()
     own_login = (user.get("twitch_login") or "").lower()
     if (vod_chan and own_login and vod_chan != own_login
-            and user.get("plan") not in ("founder", "internal")):
+            and not is_admin(user)):
         sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
            json={"status": "failed", "finished_at": "now()",
                  "error": f"VOD belongs to '{vod_chan}', account is '{own_login}'",
@@ -615,9 +628,13 @@ def process(job: dict) -> None:
     })
     stage_started = time.monotonic()
     current_stage = "finding_vod"
+    substage_started = stage_started
+    current_substage = "finding_vod"
 
-    def update_root_progress(stage: str, detail: str = "", **extra) -> None:
+    def update_root_progress(stage: str, detail: str = "",
+                             substage: str | None = None, **extra) -> None:
         nonlocal stage_started, current_stage
+        nonlocal substage_started, current_substage
         with progress_lock:
             now = time.monotonic()
             timings = dict(progress.get("timings_s") or {})
@@ -626,8 +643,22 @@ def process(job: dict) -> None:
                     timings.get(current_stage, 0) + now - stage_started, 2)
                 stage_started = now
                 current_stage = stage
+            # `stage` is the customer-facing label and must stay coarse.
+            # `substage_s` is the engineering breakdown: "rendering" bundles
+            # facecam, the caption pass, master downloads and OCR QA with the
+            # actual encodes, so the coarse number can't tell us what to
+            # optimize. Additive key — web ignores what it doesn't know.
+            substages = dict(progress.get("substage_s") or {})
+            marker = substage or stage
+            if marker != current_substage:
+                substages[current_substage] = round(
+                    substages.get(current_substage, 0)
+                    + now - substage_started, 2)
+                substage_started = now
+                current_substage = marker
             progress.update({
                 "stage": stage, "detail": detail, "timings_s": timings,
+                "substage_s": substages,
                 # Piggyback on the existing per-stage PATCH instead of adding
                 # a write path: the founder cost page then sees a running
                 # job's spend grow without the worker knowing any prices.

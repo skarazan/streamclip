@@ -257,3 +257,12 @@ package overrides (`postcss@8.5.23`, `sharp@0.35.3`). Do not remove those
 overrides until the framework's own dependency tree resolves to equally new or
 newer releases. A production build and `npm audit` are required after every
 framework or override change; never use `npm audit fix --force` blindly.
+
+## 2026-07-25 — Stripe products are business-use SaaS
+
+Managed Payments rejects products without one of its eligible product tax
+codes. Both subscriptions and both VOD-credit packs are access to the same
+hosted creator tool, so all four use Stripe's business-use SaaS code
+`txcd_10103001`. Product provisioning is incomplete until the tax code is
+verified alongside amount, interval and active status. Raw Stripe
+configuration errors stay in server logs and are never rendered to customers.

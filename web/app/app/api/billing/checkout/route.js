@@ -48,6 +48,13 @@ export async function POST(request) {
     const session = await stripeRequest("/checkout/sessions", fields);
     return NextResponse.json({ url: session.url });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 502 });
+    // Stripe's messages include internal account configuration and API
+    // details that are useful in server logs but hostile and noisy in the
+    // customer UI.
+    console.error("Stripe Checkout session creation failed", error);
+    return NextResponse.json(
+      { error: "Checkout is temporarily unavailable. Please try again shortly." },
+      { status: 502 }
+    );
   }
 }

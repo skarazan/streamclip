@@ -49,6 +49,19 @@ them is the Supabase schema + R2 key layout:
    queue depth). Web shows a "processing delayed" banner when heartbeat is
    stale >5 min — this is the "workers down, people still see stuff" feature.
 
+### v11 additions that move with the web repo
+
+The dashboard now includes API routes (`app/api/edit-jobs/[id]`, `.../media`,
+`app/api/clips/[id]/editor-source`, `.../revisions`) that stream the editing
+proxy same-origin with Range support. Two flags for the split:
+
+- These routes are part of the WEB service (they only read Supabase + R2);
+  they move to `streamclip-web` unchanged.
+- **Cost/limit watch**: proxy video streams through Vercel functions →
+  function egress + duration limits. Fine for 360×640 proxies; revisit if
+  usage grows (Cloudflare Worker in front of R2 is the escape hatch). Final
+  clip downloads stay direct-presigned — keep it that way.
+
 ### Migration steps
 
 1. `git subtree split` (or plain copy, history isn't precious) `web/app` +

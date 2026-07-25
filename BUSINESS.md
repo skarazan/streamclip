@@ -30,10 +30,13 @@ StreamClip turns them into Shorts while you sleep."
 
 ## 2. Pricing
 
-- **Starter — $14.99/mo**: 8 VOD credits/mo (1 credit = one VOD processed →
-  3 shorts + metadata). Extra credits $1.99 each or 5 for $7.99.
-- **Creator — $29.99/mo**: 20 credits, priority queue, style profiles,
-  compilation builder when it ships.
+- **Starter — $14.99/mo**: 8 VOD credits/mo (1 credit = one full VOD scan →
+  up to 5 verified shorts + metadata; dashboard allows 1–8). Extra credits
+  $1.99 each or 5 for $7.99. Quality gate means count is a target, not a
+  promise — sell "verified clips only", never a fixed number.
+- **Creator — $29.99/mo**: 20 credits, priority queue (exists: editor-priority
+  queue ordering), style profiles, timeline-editor exports beyond the included
+  quota, compilation builder when it ships.
 - **Trial**: 2 credits, phone-verified (Twilio) to stop farm abuse. No card
   required — card-required trials kill conversion at this price point.
 
@@ -53,6 +56,14 @@ added only after churn data exists.
 | Segment download bandwidth | ~$0 | ingress free |
 | R2 storage + egress | ~$0.01 | egress is free on R2; clips ~100MB/batch |
 | **Total** | **~$0.45–0.70** | round to **$0.70 planning figure** |
+
+Since v11 (2026-07-24) the worker **records stage timing and estimated compute
+cost on every completed root job** — replace this table with a rolling average
+of real job records as soon as ~10 production jobs exist. Note the default is
+now 5 clips/scan (was 3): captions/renders are marginal per Codex's
+measurement, but verify against recorded costs, and watch two new COGS lines:
+timeline-editor **proxy encodes** (one per edit job) and **final revision
+exports** (one full encode each — meter these if users iterate heavily).
 
 ### Contribution per subscriber (Starter, worst case all 8 credits used)
 
@@ -113,6 +124,16 @@ Ordered by "blocks charging money" first:
 8. **Onboarding flow**: connect Twitch → pick template → first batch runs on
    most recent VOD automatically. Time-to-first-clip is THE activation metric;
    target < 20 min from signup.
+
+**Shipped since first draft (v11, 2026-07-24)** — no longer gaps:
+- Timeline editor (proxy-first, draggable cuts, waveform, revision exports) —
+  a real retention feature and a sales point: "automatic first, one-click
+  fix-up when you want it." Does NOT violate the everything-automatic rule:
+  selection and shipping stay automatic; editing is optional post-delivery.
+- Title/opening templates with deterministic QA; settings snapshotted per job.
+- Progressive publishing (clips appear as they pass QA — helps perceived
+  speed and the <20-min activation target).
+- Per-job compute-cost records (feeds §3 with real numbers).
 
 **P2 — growth**
 9. Landing page conversion pass (see SPEC-web-split.md §4).

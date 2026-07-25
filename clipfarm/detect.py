@@ -578,10 +578,17 @@ def _score_chunk_claude_code(client, model: str, body: str, system: str = None,
         + json.dumps(schema or MOMENT_SCHEMA)
         + "\n\nTranscript:\n" + body
     )
+    # The Modal worker image has no `claude` binary, so this rung is a
+    # guaranteed FileNotFoundError there. Say so once, clearly, instead of
+    # surfacing a missing-file traceback in every fallback chain.
+    cli = _claude_cli()
+    if cli is None:
+        raise RuntimeError(
+            "claude CLI not installed in this environment — skipping rung")
     # "claude-code" = CLI default model; "claude-code:opus" etc. pins one.
     # Prompt goes via STDIN: editor-pass prompts are big enough to break as
     # an argv argument, and stdin is the CLI's supported piping path.
-    cmd = [_claude_cli() or "claude", "-p"]
+    cmd = [cli, "-p"]
     if ":" in model:
         cmd += ["--model", model.split(":", 1)[1]]
     last_err = ""
@@ -679,8 +686,21 @@ def _fn_for(name: str):
     return _score_chunk_openai
 
 
+# One chunk of transcript is a small ask; the editor pass reasons over every
+# shortlisted candidate at once and needs several times longer. A single 60s
+# ceiling meant the editor call could NEVER finish: in production it timed out
+# on gpt-5-mini, burned ~700s failing over to rate-limited free tiers, and
+# silently degraded to "keeping scorer ranking" — losing the arc-verified
+# editor judgement that DECISIONS.md calls the strongest quality lever.
+# A client-side timeout also does not cancel the provider's work, so the
+# tokens were billed and thrown away.
+SCORING_TIMEOUT_S = 60.0
+EDITOR_TIMEOUT_S = 300.0
+
+
 def _client_provider(primary: str, base_url: str | None,
-                     api_key_env: str | None):
+                     api_key_env: str | None,
+                     timeout: float = SCORING_TIMEOUT_S):
     """Lazy per-model client cache, shared by scoring and the editor pass."""
     _clients = {}
 
@@ -697,17 +717,17 @@ def _client_provider(primary: str, base_url: str | None,
         elif name == primary and base_url:
             c = OpenAI(base_url=base_url,
                        api_key=os.environ[api_key_env or "OPENAI_API_KEY"],
-                       timeout=60.0, max_retries=0)
+                       timeout=timeout, max_retries=0)
         elif name.startswith("gemini"):
             c = OpenAI(base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
                        api_key=os.environ["GEMINI_API_KEY"],
-                       timeout=60.0, max_retries=0)
+                       timeout=timeout, max_retries=0)
         elif _is_openai(name):
-            c = OpenAI(timeout=60.0, max_retries=0)
+            c = OpenAI(timeout=timeout, max_retries=0)
         else:  # llama/qwen/etc -> Groq
             c = OpenAI(base_url="https://api.groq.com/openai/v1",
                        api_key=os.environ["GROQ_API_KEY"],
-                       timeout=60.0, max_retries=0)
+                       timeout=timeout, max_retries=0)
         _clients[name] = c
         return c
 
@@ -1022,7 +1042,8 @@ story/retention bar merely to hit the number."""
             break
         try:
             data = _fn_for(name)(
-                _client_provider(model, base_url, api_key_env)(name), name,
+                _client_provider(model, base_url, api_key_env,
+                                 timeout=EDITOR_TIMEOUT_S)(name), name,
                 body, sysmsg,
                 schema=RERANK_SCHEMA)
             if cache_file is not None:

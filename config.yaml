@@ -52,10 +52,11 @@ llm:
   #     OpenRouter: base_url: https://openrouter.ai/api/v1          api_key_env: OPENROUTER_API_KEY  (":free" models)
   # benchmark 2026-07-04 (blind Claude judging): gpt-5-mini best picks/hooks.
   # ~$0.045/stream. scout = fast free fallback, gemini third (free-tier flaky).
-  model: "gemini-3.5-flash"  # primary Gemini free-tier quota pool
-  # Gemini quotas vary by model, so 3.6 gets a separate attempt before the
-  # provider chain leaves Google. Claude CLI and Groq remain last-resort pools.
-  fallback_models: ["gemini-3.6-flash", "claude-code", "meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.3-70b-versatile"]
+  # PAID primary since 2026-07-25 (~$0.07/6h VOD): the free-tier chain spent
+  # ~40 min per Tier-C job in 429 retries. Free models are the fallback now,
+  # not the path customers wait on.
+  model: "gpt-5-mini"
+  fallback_models: ["gemini-3.5-flash", "gemini-3.6-flash", "claude-code", "llama-3.3-70b-versatile"]
   base_url: null
   api_key_env: "OPENAI_API_KEY"
   chunk_minutes: 8      # small chunks: free-tier TPM limits

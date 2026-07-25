@@ -57,6 +57,7 @@ def sb(method: str, path: str, **kwargs) -> httpx.Response:
     key = os.environ["SUPABASE_SERVICE_KEY"]
     headers = {"apikey": key, "Authorization": f"Bearer {key}",
                "Content-Type": "application/json", "Prefer": "return=representation"}
+    headers.update(kwargs.pop("headers", {}))
     r = httpx.request(method, url, headers=headers, timeout=30, **kwargs)
     r.raise_for_status()
     return r
@@ -84,6 +85,29 @@ def has_running_job() -> bool:
     return bool(r.json())
 
 
+def heartbeat(state: str = "idle", detail: str = "") -> None:
+    """Publish worker availability without coupling web to worker HTTP."""
+    try:
+        import datetime
+        queued = sb(
+            "GET", "/rest/v1/jobs?status=eq.queued&select=id&limit=1000").json()
+        sb(
+            "POST", "/rest/v1/worker_health?on_conflict=id",
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            json={
+                "id": WORKER_ID,
+                "state": state,
+                "queue_depth": len(queued),
+                "worker_version": getattr(pipeline, "PIPELINE_VERSION", "unknown"),
+                "detail": detail[:240],
+                "updated_at": datetime.datetime.now(
+                    datetime.timezone.utc).isoformat(),
+            },
+        )
+    except Exception as error:
+        print(f"heartbeat warning: {error}")
+
+
 def claim_job() -> dict | None:
     r = sb("POST", "/rest/v1/rpc/claim_job", json={"p_worker": WORKER_ID})
     rows = r.json()
@@ -92,6 +116,113 @@ def claim_job() -> dict | None:
 
 def get_user(user_id: str) -> dict:
     return sb("GET", f"/rest/v1/users?id=eq.{user_id}").json()[0]
+
+
+def reserve_job_credits(job: dict, amount: int) -> tuple[bool, int]:
+    try:
+        rows = sb("POST", "/rest/v1/rpc/reserve_job_credits", json={
+            "p_job": job["id"], "p_user": job["user_id"], "p_amount": amount,
+        }).json()
+        result = rows[0] if rows else {}
+        return bool(result.get("ok")), int(result.get("balance") or 0)
+    except httpx.HTTPStatusError as error:
+        if error.response.status_code != 404:
+            raise
+        # Two-step deployment bridge: the current single local worker must
+        # keep operating while the additive RPC migration is applied. Hosted
+        # multi-worker production must have the RPC; this fallback is marked
+        # on the in-memory job and retains the old success-time charge.
+        print(f"atomic credit RPC unavailable, legacy bridge active: {error}")
+        current = get_user(job["user_id"])
+        balance = int(current.get("credits") or 0)
+        if balance >= amount:
+            job["_legacy_credit_cost"] = amount
+            return True, balance - amount
+        return False, balance
+
+
+def refund_job_credits(job: dict, reason: str = "failed job refund") -> None:
+    sb("POST", "/rest/v1/rpc/refund_job_credits", json={
+        "p_job": job["id"], "p_user": job["user_id"], "p_reason": reason,
+    })
+
+
+def purge_due_accounts() -> int:
+    """Delete R2 objects, then the auth user after the 7-day grace period."""
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    due = sb(
+        "GET", "/rest/v1/users?deletion_requested_at=lte."
+        f"{now}&select=id&limit=25").json()
+    if not due:
+        return 0
+    import boto3
+    s3 = boto3.client(
+        "s3", endpoint_url=os.environ["R2_ENDPOINT"],
+        aws_access_key_id=os.environ["R2_KEY"],
+        aws_secret_access_key=os.environ["R2_SECRET"])
+    removed = 0
+    for account in due:
+        user_id = account["id"]
+        token = None
+        while True:
+            page = s3.list_objects_v2(
+                Bucket=os.environ["R2_BUCKET"],
+                Prefix=f"{user_id}/",
+                ContinuationToken=token) if token else s3.list_objects_v2(
+                    Bucket=os.environ["R2_BUCKET"], Prefix=f"{user_id}/")
+            objects = [{"Key": item["Key"]} for item in page.get("Contents", [])]
+            if objects:
+                s3.delete_objects(
+                    Bucket=os.environ["R2_BUCKET"],
+                    Delete={"Objects": objects, "Quiet": True})
+            if not page.get("IsTruncated"):
+                break
+            token = page.get("NextContinuationToken")
+        url = (os.environ["SUPABASE_URL"].rstrip("/")
+               + f"/auth/v1/admin/users/{user_id}")
+        key = os.environ["SUPABASE_SERVICE_KEY"]
+        response = httpx.delete(
+            url,
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            timeout=30)
+        response.raise_for_status()
+        removed += 1
+    return removed
+
+
+def send_ready_notification(user: dict, job: dict, clip_count: int) -> None:
+    """Best-effort completion email; processing success never depends on it."""
+    if not user.get("notification_email") or not user.get("email"):
+        return
+    key = os.environ.get("RESEND_API_KEY")
+    if not key:
+        return
+    site = os.environ.get("STREAMCLIP_SITE_URL", "https://streamclip.app")
+    try:
+        response = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {key}",
+                     "Content-Type": "application/json"},
+            json={
+                "from": os.environ.get(
+                    "RESEND_FROM", "StreamClip <clips@streamclip.app>"),
+                "to": [user["email"]],
+                "subject": f"{clip_count} StreamClip "
+                           f"{'clip is' if clip_count == 1 else 'clips are'} ready",
+                "html": (
+                    f"<h1>Your clips are ready.</h1><p>{clip_count} verified "
+                    "clip"
+                    f"{'' if clip_count == 1 else 's'} finished processing."
+                    f"</p><p><a href=\"{site}/app\">Open your dashboard</a></p>"
+                ),
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+    except Exception as error:
+        print(f"notification warning for {job['id']}: {error}")
 
 
 def upload_r2(local: Path, key: str) -> None:
@@ -337,6 +468,57 @@ LONG_VOD_H = float(os.environ.get("LONG_VOD_HOURS", "8"))
 MAX_VOD_H = float(os.environ.get("MAX_VOD_HOURS", "16"))
 
 
+def resolve_auto_vod(job: dict) -> str | None:
+    """Resolve an EventSub offline marker after Twitch publishes the archive."""
+    if not str(job.get("vod_url", "")).startswith("twitch://latest/"):
+        return job.get("vod_url")
+    import datetime
+    broadcaster_id = job["vod_url"].rsplit("/", 1)[-1]
+    client_id = os.environ.get("TWITCH_CLIENT_ID")
+    client_secret = os.environ.get("TWITCH_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise RuntimeError("Twitch EventSub VOD resolution is not configured")
+    token_response = httpx.post(
+        "https://id.twitch.tv/oauth2/token",
+        params={"client_id": client_id, "client_secret": client_secret,
+                "grant_type": "client_credentials"},
+        timeout=20)
+    token_response.raise_for_status()
+    token = token_response.json()["access_token"]
+    videos_response = httpx.get(
+        "https://api.twitch.tv/helix/videos",
+        params={"user_id": broadcaster_id, "type": "archive", "first": 1},
+        headers={"Client-Id": client_id, "Authorization": f"Bearer {token}"},
+        timeout=20)
+    videos_response.raise_for_status()
+    video = (videos_response.json().get("data") or [None])[0]
+    if video:
+        created = datetime.datetime.fromisoformat(
+            video["created_at"].replace("Z", "+00:00"))
+        queued = datetime.datetime.fromisoformat(
+            str(job["created_at"]).replace("Z", "+00:00"))
+        if created >= queued - datetime.timedelta(hours=20):
+            vod_url = f"https://www.twitch.tv/videos/{video['id']}"
+            progress = dict(job.get("progress") or {})
+            progress.update({"stage": "queued", "detail": "",
+                             "resolved_vod_id": video["id"]})
+            sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
+               json={"vod_url": vod_url, "progress": progress})
+            job["vod_url"] = vod_url
+            job["progress"] = progress
+            return vod_url
+    later = (datetime.datetime.now(datetime.timezone.utc)
+             + datetime.timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    progress = dict(job.get("progress") or {})
+    progress.update({"stage": "finding_vod",
+                     "detail": "Twitch is still publishing the archive"})
+    sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
+       json={"status": "queued", "worker_id": None, "started_at": None,
+             "run_after": later, "progress": progress})
+    print(f"{job['id']}: Twitch archive not ready, deferred 15min")
+    return None
+
+
 def process(job: dict) -> None:
     kind = (job.get("progress") or {}).get("kind")
     if kind == "clip_source":
@@ -344,6 +526,8 @@ def process(job: dict) -> None:
         return
     if kind == "clip_edit":
         process_clip_edit(job)
+        return
+    if not resolve_auto_vod(job):
         return
     from clipfarm import fetch
     info = {}
@@ -402,6 +586,18 @@ def process(job: dict) -> None:
         print(f"{job['id']}: refused, {user.get('credits', 0)} GW "
               f"< {credits_needed} needed")
         return
+    reserved, balance = reserve_job_credits(job, credits_needed)
+    if not reserved:
+        sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
+           json={"status": "failed", "finished_at": "now()",
+                 "error": "insufficient credits",
+                 "progress": {"stage": "failed",
+                              "version": getattr(
+                                  pipeline, "PIPELINE_VERSION", "unknown"),
+                              "detail": f"not enough gigawatts — current "
+                                        f"balance is {balance} GW"}})
+        print(f"{job['id']}: atomic credit reservation refused")
+        return
 
     cfg = build_job_config(user, job)
     processing_started = time.monotonic()
@@ -409,6 +605,7 @@ def process(job: dict) -> None:
     progress = dict(job.get("progress") or {})
     progress.update({
         "stage": "finding_vod", "detail": "",
+        "version": getattr(pipeline, "PIPELINE_VERSION", "unknown"),
         "requested": int(cfg["clips"]["count"]),
         "published": 0, "ready_clip_ids": [],
     })
@@ -529,12 +726,14 @@ def process(job: dict) -> None:
                           "rejection_reasons": result.get(
                               "rejection_reasons", []),
                           "clip_recipes": recipes}})
-    sb("POST", "/rest/v1/credit_events",
-       json={"user_id": job["user_id"], "delta": -credits_needed,
-             "reason": "job" if credits_needed == 1 else "job (long VOD)",
-             "job_id": job["id"]})
-    sb("PATCH", f"/rest/v1/users?id=eq.{job['user_id']}",
-       json={"credits": max(0, user["credits"] - credits_needed)})
+    if job.get("_legacy_credit_cost"):
+        legacy_cost = int(job["_legacy_credit_cost"])
+        sb("POST", "/rest/v1/credit_events",
+           json={"user_id": job["user_id"], "delta": -legacy_cost,
+                 "reason": "job (migration bridge)", "job_id": job["id"]})
+        sb("PATCH", f"/rest/v1/users?id=eq.{job['user_id']}",
+           json={"credits": max(0, int(user["credits"]) - legacy_cost)})
+    send_ready_notification(user, job, len(result["clips"]))
 
 
 def fail(job: dict, err: str) -> None:
@@ -559,11 +758,17 @@ def fail(job: dict, err: str) -> None:
     sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
        json={"status": "failed", "error": err[-1500:],
              "progress": progress, "finished_at": "now()"})
+    if not (job.get("progress") or {}).get("kind"):
+        try:
+            refund_job_credits(job)
+        except Exception as error:
+            print(f"credit refund warning: {error}")
 
 
 def main_loop() -> None:
     print(f"worker {WORKER_ID} polling every {POLL}s")
     while True:
+        heartbeat("polling")
         try:
             job = claim_job()
         except Exception as e:
@@ -571,8 +776,10 @@ def main_loop() -> None:
             time.sleep(POLL)
             continue
         if not job:
+            heartbeat("idle")
             time.sleep(POLL)
             continue
+        heartbeat("processing", f"job {job['id']}")
         print(f"claimed job {job['id']} ({job['vod_url']})")
         try:
             process(job)
@@ -584,6 +791,7 @@ def main_loop() -> None:
                 fail(job, err)
             except Exception as e2:
                 print(f"couldn't mark failed: {e2}")
+        heartbeat("idle")
 
 
 def local_run(spec: dict) -> None:

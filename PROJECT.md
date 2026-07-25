@@ -97,6 +97,29 @@ preempt a running full VOD and never create another worker. For an existing
 Supabase deployment, apply
 `infra/migrations/20260724_editor_priority.sql`.
 
+### Sellable-service layer (2026-07-25 CTO checkpoint)
+
+- `CONTRACT.md` defines the DB/R2-only web/worker boundary. The additive
+  service migration adds heartbeat, billing idempotency, atomic credit RPCs,
+  Stripe/account fields, and one-running-job-per-user queue isolation.
+- Stripe Checkout, Customer Portal, signed webhooks, monthly/pack credit
+  grants, and the customer ledger UI are implemented but inert without
+  explicit price IDs and secrets.
+- Twitch EventSub `stream.offline` can enqueue an idempotent delayed root job;
+  the worker resolves the archive after Twitch publishes it.
+- First login routes through `/app/onboarding`; the dashboard remains available
+  at both `/app` and `/dashboard`.
+- Public conversion/compliance routes are part of the Next.js app: pricing,
+  FAQ, demo, changelog, status, login, and legal Terms/Privacy/Cookies.
+- Worker heartbeat keeps web availability independent from processing and
+  makes a five-minute stale worker visible without hiding old clips.
+- Account deletion is a seven-day scheduled operation; the worker deletes the
+  user R2 namespace before deleting the Supabase auth user and cascading rows.
+- `scripts/extract-web-repo.sh` prepares a clean local `streamclip-web` split.
+  GitHub/Vercel creation, production migration, billing activation, webhook
+  registration, email domain, monitoring, and legal approval remain explicit
+  deployment actions—not things an agent should silently perform.
+
 ---
 
 ## 2. Run it

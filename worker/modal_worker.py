@@ -52,9 +52,15 @@ def poll():
     import worker
 
     worker.requeue_stale()
+    removed = worker.purge_due_accounts()
+    if removed:
+        print(f"purged {removed} expired account(s)")
+    worker.heartbeat("polling")
     if worker.has_ready_job() and not worker.has_running_job():
         drain.spawn()
         print("ready job found -> CPU drain spawned")
+    else:
+        worker.heartbeat("idle")
 
 
 @app.function(
@@ -99,6 +105,7 @@ def drain():
     # stale pre-deploy containers can claim jobs and silently run old code;
     # this line in every drain makes the running version verifiable
     print(f"drain code: {PIPELINE_VERSION}")
+    worker.heartbeat("processing", f"drain {PIPELINE_VERSION}")
 
     n = 0
     while True:
@@ -120,3 +127,4 @@ def drain():
         hf_cache.commit()
         work_vol.commit()
     print(f"queue drained, {n} job(s) processed")
+    worker.heartbeat("idle")

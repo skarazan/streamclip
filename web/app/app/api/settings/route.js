@@ -67,6 +67,12 @@ export async function POST(request) {
       opening_effect: body.opening_effect,
     };
   }
+  if ("notification_email" in body) {
+    if (typeof body.notification_email !== "boolean") {
+      return NextResponse.json({ error: "notification_email must be boolean" }, { status: 400 });
+    }
+    patch.notification_email = body.notification_email;
+  }
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "nothing to update" }, { status: 400 });
   }

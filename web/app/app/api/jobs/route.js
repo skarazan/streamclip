@@ -55,9 +55,17 @@ export async function POST(request) {
   // service key past this point: credits/queue state are the house's books.
   // The worker re-checks everything (credits, own-channel, VOD length) —
   // this route exists to fail fast and keep the queue clean.
-  const users = await fetch(
-    rest(`/users?id=eq.${user.id}&select=credits,clips_per_stream,style_profile`),
-    { headers: svcHeaders(), cache: "no-store" }).then((r) => r.json());
+  let userResponse = await fetch(
+    rest(`/users?id=eq.${user.id}&select=credits,clips_per_stream,style_profile,deletion_requested_at`),
+    { headers: svcHeaders(), cache: "no-store" });
+  if (!userResponse.ok) {
+    // Additive migration rollout: old schema remains usable until the new
+    // deletion column is installed.
+    userResponse = await fetch(
+      rest(`/users?id=eq.${user.id}&select=credits,clips_per_stream,style_profile`),
+      { headers: svcHeaders(), cache: "no-store" });
+  }
+  const users = await userResponse.json();
   if (!users?.[0]) {
     return NextResponse.json({ error: "account not found" }, { status: 500 });
   }
@@ -65,6 +73,12 @@ export async function POST(request) {
     return NextResponse.json(
       { error: "not enough gigawatts — top up to keep clipping" },
       { status: 402 });
+  }
+  if (users[0].deletion_requested_at) {
+    return NextResponse.json(
+      { error: "account deletion is scheduled — cancel it in Settings before starting new work" },
+      { status: 409 }
+    );
   }
   const requestedCount = Number.isInteger(Number(body.clips_per_stream)) &&
     Number(body.clips_per_stream) >= 1 && Number(body.clips_per_stream) <= 8
@@ -96,6 +110,7 @@ export async function POST(request) {
       status: "queued",
       progress: {
         stage: "queued",
+        version: "pending",
         settings_snapshot: {
           clips_per_stream: requestedCount,
           style_profile: users[0].style_profile || {},

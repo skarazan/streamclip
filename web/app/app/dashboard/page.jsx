@@ -11,6 +11,8 @@ import RunAgain from "./RunAgain";
 import ClipEditor from "./ClipEditor";
 import ClipTimelineEditor from "./ClipTimelineEditor";
 import DashboardAutoRefresh from "./DashboardAutoRefresh";
+import WorkerStatusBanner from "./WorkerStatusBanner";
+import ClipFeedback from "./ClipFeedback";
 
 const s3 = new S3Client({
   region: "auto",
@@ -32,7 +34,7 @@ async function signed(key) {
 export default async function Dashboard() {
   const sb = serverClient();
   const { data: { user } } = await sb.auth.getUser();
-  if (!user) redirect("/");
+  if (!user) redirect("/login");
 
   const [
     { data: profile },
@@ -94,18 +96,28 @@ export default async function Dashboard() {
   return (
     <main className="max-w-6xl mx-auto px-6 py-10">
       <DashboardAutoRefresh />
-      <div className="flex items-center justify-between mb-10">
+      <WorkerStatusBanner />
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-10">
         <div className="text-xl font-black">
           Stream<span className="text-[#9146FF]">Clip</span>
           <span className="ml-3 text-sm font-normal text-gray-400">
             {profile?.twitch_login}
           </span>
         </div>
-        <div className="flex items-center gap-5">
+        <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+          <a href="/app/settings" className="text-sm font-bold text-gray-400 hover:text-white">
+            Settings
+          </a>
+          <a href="/app/billing" className="text-sm font-bold text-gray-400 hover:text-white">
+            Billing
+          </a>
           <ClipCount initial={profile?.clips_per_stream} />
           <div className="text-sm font-bold px-4 py-2 rounded-full border border-[#2e2e4a] bg-[#15151f]">
             ⚡ {profile?.credits ?? 0} GW
           </div>
+          <a href="/logout" className="text-xs font-bold text-gray-500 hover:text-white">
+            Sign out
+          </a>
         </div>
       </div>
 
@@ -123,7 +135,11 @@ export default async function Dashboard() {
       {batches.length === 0 ? (
         <div className="text-center py-24 text-gray-400">
           <p className="text-2xl font-bold mb-2">No clips yet</p>
-          <p>Your next stream gets clipped automatically. Just go live.</p>
+          <p>Choose your first template and run the latest finished VOD.</p>
+          <a href="/app/onboarding"
+            className="mt-5 inline-block rounded-xl bg-[#9146FF] px-5 py-3 font-black text-white">
+            Start first batch
+          </a>
         </div>
       ) : (
         batches.map(({ job, clips: batchClips }) => (
@@ -208,6 +224,7 @@ export default async function Dashboard() {
                      className="block text-center mt-3 bg-[#9146FF] hover:bg-[#7a2ff0] text-white text-sm font-bold py-2 rounded-lg">
                     Download
                   </a>
+                  <ClipFeedback clipId={c.id} initial={c.feedback} />
                 </div>
               ))}
               {job.status === "running" && Array.from({

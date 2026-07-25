@@ -222,3 +222,24 @@ Risks and containment:
 GPU acceleration remains rejected until timing data shows rendering is more
 than half of wall time and an identical-output NVENC benchmark demonstrates a
 large enough speedup to justify its higher hourly price.
+
+## 2026-07-25 — Revenue controls are database transactions
+
+Reading a credit balance in web and subtracting it after a successful worker
+run permits two workers to spend the same balance. Root VOD jobs now reserve
+their full cost through `reserve_job_credits` under a user-row lock before
+expensive work. Failure refunds are idempotent; Stripe grants are keyed by
+external event IDs; one root job runs per user.
+
+The temporary legacy path exists only so the current single local worker keeps
+running between code deployment and the additive migration. Multi-worker
+production may not launch until the RPC migration is applied.
+
+## 2026-07-25 — Web availability does not imply worker availability
+
+The web service reads job/clip state from Supabase and never needs a live
+worker to serve old artifacts. Workers publish heartbeat, state, version and
+queue depth through `worker_health`; web warns after five stale minutes.
+Service extraction is prepared locally, but creating a GitHub repository,
+Vercel deployment, paid Stripe products, webhooks, monitoring accounts, or
+live legal obligations remains an explicit founder deployment action.

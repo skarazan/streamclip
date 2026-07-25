@@ -64,9 +64,11 @@ proxy same-origin with Range support. Two flags for the split:
 
 ### Migration steps
 
-1. `git subtree split` (or plain copy, history isn't precious) `web/app` +
-   `web/landing` → new repo `streamclip-web`; keep `.env.local` handling,
-   wire Vercel project to it.
+1. Run `scripts/extract-web-repo.sh` from a clean committed tree. It performs
+   the `web/app` subtree split into a local sibling `streamclip-web`, removes
+   the inherited origin, and leaves external GitHub/Vercel creation as an
+   explicit founder-authorized deployment action. The old static
+   `web/landing` is superseded by the Next.js conversion routes.
 2. Add `CONTRACT.md` + `worker_health` table + heartbeat in worker poll fn.
 3. Remove `web/` from the worker repo once Vercel serves from the new one.
 4. Sentry DSNs: one project per service.
@@ -134,6 +136,35 @@ check this from their phone after a stream.
 4. `/pricing` + Stripe checkout + credit enforcement hook (revenue)
 5. Landing conversion pass + `/faq` + `/demo` (traffic → signup)
 6. `/status`, `/changelog`, notification emails (retention)
+
+### CTO implementation checkpoint — 2026-07-25
+
+Implemented in the current repository:
+
+- additive `CONTRACT.md`, progress versioning, `worker_health`, per-user claim
+  isolation, atomic reserve/refund/grant credit RPCs, and billing-event
+  idempotency;
+- public/dash status surfaces and stale-worker banner;
+- hardened Twitch OAuth errors, onboarding, EventSub offline ingestion and
+  delayed latest-archive resolution;
+- pricing, Stripe Checkout/Portal/webhook code, credit ledger UI;
+- legal trio, cookie-minimal posture, FAQ schema, demo, changelog,
+  sitemap/robots, Plausible event hooks, responsive landing;
+- Resend completion notification hook and seven-day account-deletion workflow;
+- `scripts/extract-web-repo.sh`, a clean-history local extraction tool.
+
+Deliberately not performed by code:
+
+- creating/pushing the private GitHub `streamclip-web` repository;
+- creating a Vercel project or production deployment;
+- creating Stripe products/prices or enabling live charges;
+- applying the production Supabase migration;
+- registering production webhook URLs, Resend domain, Sentry, or uptime monitor;
+- representing legal drafts as counsel-approved.
+
+Those are external-state/credential decisions. The implementation stays inert
+or uses a safe compatibility bridge until the founder explicitly performs the
+deployment checklist in `web/app/README.md`.
 
 ### Acceptance checks (per workstream)
 

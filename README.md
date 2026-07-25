@@ -128,6 +128,27 @@ The concurrency ceilings live in `config.yaml` as `download_workers`,
 `caption_workers`, and `render_workers`. `render_workers` is hard-capped at two
 in code even if configuration is accidentally raised.
 
+### Sellable-service deployment
+
+Fable's business and service plan is implemented behind additive, inert
+deployment boundaries:
+
+- apply `infra/migrations/20260725_service_contract.sql` before enabling
+  multi-worker billing or heartbeat alerts;
+- the worker atomically reserves/refunds credits and publishes
+  `worker_health`; a migration bridge preserves today's single local worker;
+- Stripe, EventSub, Resend, Plausible, monitoring, and Vercel activate only
+  when their documented environment variables/external resources exist;
+- public pricing, FAQ, demo, changelog, status, login and legal routes live in
+  the Next.js app; first login routes to template/VOD onboarding;
+- use `scripts/extract-web-repo.sh` only from a clean commit to create the
+  local `streamclip-web` repository. Creating/pushing the private GitHub repo
+  and production deployment remain explicit founder actions.
+
+See `BUSINESS.md`, `SPEC-web-split.md`, `CONTRACT.md`, and
+`web/app/README.md` for the business rationale, service boundary, and exact
+deployment order.
+
 The dashboard snapshots its complete template when the job is submitted.
 Changing a setting while a job is queued or running affects only the next job.
 The finished batch and `selection_manifest.json` record the caption, title,

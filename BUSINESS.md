@@ -99,31 +99,42 @@ hold to roughly 30–50 users, which is conveniently our validation gate.
   Twitch usernames before any more product spend**; 10 concierge customers
   before self-serve polish.
 
-## 4. What is still missing for a sellable product (gap diagnosis)
+## 4. Sellability gap diagnosis
 
 Ordered by "blocks charging money" first:
 
-**P0 — cannot take money without these**
-1. **Stripe**: subscription + credit packs + webhook → credit ledger. Ledger
-   table exists (`credit_events`); no billing attached.
-2. **Credit enforcement in the worker**: job refused when balance ≤ 0
-   (currently founder accounts have infinite credits).
-3. **Legal/trust pages**: ToS, Privacy, cookie consent, refund policy —
-   required by Stripe, Twitch API ToS compliance, and GDPR (EU streamers are
-   a big segment).
-4. **Auth hardening**: session expiry, Twitch token refresh, account deletion
-   (GDPR art. 17), support email.
+**P0 — code implemented 2026-07-25; deployment gates remain**
+1. **Stripe**: Checkout for both plans and both credit packs, Customer Portal,
+   signed/idempotent webhook processing, and an append-only credit ledger are
+   implemented. CTO deployment gate: create the four Stripe Price objects,
+   provide keys, register the webhook, and run test-mode acceptance.
+2. **Credit enforcement**: the worker now atomically reserves credits through
+   a row-locking RPC before compute, prevents concurrent work for one user, and
+   idempotently refunds internal failures. A single-worker legacy bridge keeps
+   local runs alive until the migration is applied; production may not rely on
+   that bridge.
+3. **Legal/trust**: ToS, Privacy, and Cookie pages plus site-wide footer links
+   are implemented. COO/founder gate: counsel reviews the clearly marked launch
+   drafts before paid customers are accepted.
+4. **Auth/account**: explicit OAuth denial/session errors, `/login`, `/logout`,
+   re-auth redirects, and seven-day deletion scheduling are implemented. The
+   worker purges the user’s R2 prefix before deleting the Supabase auth user.
 
-**P1 — cannot retain without these**
-5. **Auto-trigger**: Twitch EventSub `stream.offline` → enqueue VOD. The
-   whole pitch is "clips appear while you sleep"; today jobs are manual.
-6. **Notifications**: email/Discord "your clips are ready" with thumbnails.
-7. **Reliability visibility**: status banner in dashboard when workers are
-   down (motivates the repo split, SPEC-web-split.md), Sentry on both
-   services, uptime monitor on the poll loop.
-8. **Onboarding flow**: connect Twitch → pick template → first batch runs on
-   most recent VOD automatically. Time-to-first-clip is THE activation metric;
-   target < 20 min from signup.
+**P1 — code implemented; service configuration remains**
+5. **Auto-trigger**: signed Twitch EventSub `stream.offline` ingestion,
+   idempotent enqueueing, delayed archive lookup, and per-account subscription
+   registration are implemented. Deployment needs a public callback URL and
+   EventSub secret; existing users reconnect once to ensure subscriptions.
+6. **Notifications**: a best-effort Resend completion email is implemented and
+   never changes job success. Deployment needs the verified sending domain and
+   `RESEND_API_KEY`. Discord and thumbnails remain future enhancements.
+7. **Reliability visibility**: the worker heartbeat, queue depth, public
+   `/status`, `/api/status`, and stale-heartbeat dashboard banner are
+   implemented. Deployment needs the additive migration and an external uptime
+   monitor. Sentry project creation/DSNs remain an external setup task.
+8. **Onboarding**: first login now chooses templates, discovers the latest
+   Twitch archive when the provider token permits, accepts a manual VOD
+   fallback, and enqueues the first five-clip target without leaving the flow.
 
 **Shipped since first draft (v11, 2026-07-24)** — no longer gaps:
 - Timeline editor (proxy-first, draggable cuts, waveform, revision exports) —
@@ -136,11 +147,14 @@ Ordered by "blocks charging money" first:
 - Per-job compute-cost records (feeds §3 with real numbers).
 
 **P2 — growth**
-9. Landing page conversion pass (see SPEC-web-split.md §4).
+9. Landing, pricing, FAQ structured data, demo explanation cards, changelog,
+   sitemap/robots, cookieless analytics hooks, and mobile conversion pass are
+   implemented. Real demo media and Plausible domain configuration remain.
 10. Compilation builder as a paid differentiator (exists in pipeline, not in
     product).
 11. Retention feedback loop (per-clip 👍/👎 → scoring prompt) — also our moat:
-    proprietary preference data.
+    proprietary preference data. The dashboard now captures the signal; using
+    it as calibrated model context remains a later pipeline experiment.
 12. Auto-post to YouTube/TikTok via customer OAuth (Creator-plan feature).
 
 ## 5. Risks

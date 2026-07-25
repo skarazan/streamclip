@@ -379,3 +379,36 @@ Risks and containment:
 
 The residential-proxy / customer-upload / official-access decision stays open,
 but it is no longer on the critical path.
+
+## 2026-07-25 — The semantic pre-roll was never actually running
+
+The 2026-07-24 decision ("Context must be active, not merely continuous")
+replaced a fixed six-second pre-roll with a semantic one: intent lines get one
+second, outcome/callout lines up to six. The code shipped as
+
+    arc_start = max(m.start, min(trigger - pre_roll, trigger - 30.0))
+
+`contextual_preroll` only ever returns 1.0-6.0, so `trigger - 30.0` always won
+the `min`. Every clip opened with thirty seconds of runway and the semantic
+function was dead code. The comment above it said "preserve UP TO 30 seconds" —
+a cap — but `min` makes it a floor.
+
+Measured on the 2026-07-24 batch: shipped clips opened 1.38s-17.46s before
+their own trigger, mean 8.84s. Retention research puts the decision window at
+1.5-3s, so the majority of these clips spent their entire hook window on
+nothing. This is a more likely explanation for weak output than any prompt
+weakness, and it silently reverted a decision we had already made.
+
+The arithmetic moved into `quality.arc_window_start()` so it is testable;
+`ArcWindowStartTests` pins that 30s is a cap and that every contextual_preroll
+branch opens within 6s.
+
+Replaying the same batch through the fix: mean lead-in 8.84s -> 2.76s, clips
+opening within 3s 1/8 -> 7/8, mean duration 34.8s -> 28.7s.
+
+- Benefit: the hook lands inside the window that decides retention.
+- Residual: one clip still opens at 8.19s because its verified arc is short and
+  the 16s minimum length drags the start backwards. Minimum length, not
+  pre-roll, is the binding constraint on short arcs — treat separately.
+- Containment: the crowd-peak invariant is untouched; arc_window_start still
+  never starts before the editor's chosen moment window.

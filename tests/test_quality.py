@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from clipfarm.quality import (
-    MotionResult, contextual_preroll, duration_budget, inactive_gap_reason,
+    MotionResult, arc_window_start, contextual_preroll, duration_budget, inactive_gap_reason,
     closing_beat_end, inspect_media, longest_speech_gap, low_substance_reason,
     remove_idle_gaps,
     needs_visual_bridge, should_cut_idle_gap,
@@ -205,3 +205,35 @@ class MediaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArcWindowStartTests(unittest.TestCase):
+    """The clip must open ~pre_roll before the trigger, never 30s before.
+
+    This was `min(trigger - pre_roll, trigger - 30.0)`. contextual_preroll only
+    returns 1.0-6.0, so the 30s term always won and the semantic pre-roll was
+    dead code. Real shipped clips opened 6-17s before their own trigger; the
+    mean lead-in over one batch was 8.84s against an intended 1.25-6.0s.
+    """
+
+    def test_uses_the_semantic_preroll_not_the_cap(self):
+        # trigger at 100s, moment window opens at 0 -> plenty of room to be wrong
+        self.assertAlmostEqual(arc_window_start(100.0, 0.0, 1.25), 98.75)
+        self.assertAlmostEqual(arc_window_start(100.0, 0.0, 2.5), 97.5)
+        self.assertAlmostEqual(arc_window_start(100.0, 0.0, 6.0), 94.0)
+
+    def test_thirty_seconds_is_a_cap_not_a_target(self):
+        # an absurd pre-roll is clamped; a normal one is never inflated to it
+        self.assertAlmostEqual(arc_window_start(100.0, 0.0, 90.0), 70.0)
+        self.assertGreater(arc_window_start(100.0, 0.0, 2.5), 70.0)
+
+    def test_never_starts_before_the_editors_moment_window(self):
+        # the crowd-peak invariant: bounds may tighten, never widen past m.start
+        self.assertAlmostEqual(arc_window_start(100.0, 99.0, 6.0), 99.0)
+
+    def test_lead_in_stays_inside_the_retention_window(self):
+        # every branch contextual_preroll can return must open within ~6s
+        for pre_roll in (1.0, 1.25, 2.5, 6.0):
+            with self.subTest(pre_roll=pre_roll):
+                lead = 100.0 - arc_window_start(100.0, 0.0, pre_roll)
+                self.assertLessEqual(lead, 6.0)

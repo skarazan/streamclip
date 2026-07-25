@@ -91,6 +91,22 @@ def contextual_preroll(trigger_quote: str, trigger_role: str,
     return 1.25
 
 
+def arc_window_start(trigger_start: float, moment_start: float,
+                     pre_roll: float, max_runway: float = 30.0) -> float:
+    """Where a clip should START: `pre_roll` seconds before the trigger.
+
+    `max_runway` is a CAP on how far back the editor's window may be honoured,
+    never a target. This lived inline in the pipeline as
+    `min(trigger - pre_roll, trigger - 30.0)`, and because contextual_preroll
+    only returns 1.0-6.0 the 30s term always won — so every clip opened with 30
+    seconds of runway and the semantic pre-roll was dead code. Shipped clips
+    were burning 6-17s before their own trigger, the worst possible opening for
+    short-form retention.
+    """
+    runway = min(max(pre_roll, 0.0), max_runway)
+    return max(moment_start, trigger_start - runway)
+
+
 def needs_visual_bridge(trigger_quote: str, trigger_role: str = "",
                         button_kind: str = "") -> bool:
     """Whether active silence carries the causal action or visual payoff."""

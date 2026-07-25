@@ -653,13 +653,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         # intelligible.
         pre_roll = quality.contextual_preroll(
             m.trigger_quote, m.trigger_role, m.reason)
-        # Preserve up to 30 seconds of the editor's chosen setup. The quote is
-        # an evidence anchor, not necessarily the first beat of the story.
-        arc_start = max(
-            m.start,
-            min(source_arc.trigger.start - pre_roll,
-                source_arc.trigger.start - 30.0),
-        )
+        arc_start = quality.arc_window_start(
+            source_arc.trigger.start, m.start, pre_roll)
         if (m.button_kind or "").lower() == "scream":
             close_end = quality.closing_beat_end(
                 clip_words, source_arc.button.end, m.end)

@@ -407,15 +407,33 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         seg = vod_work / f"probe_{i:02d}.mp4"
         print(f"[{i}/{len(clips)}] Downloading segment "
               f"{m.start:.0f}s-{m.end:.0f}s...")
-        return fetch.download_segment(
+        got = fetch.download_segment(
             vod_url, m.start, m.end, seg,
             cfg["clips"].get("analysis_quality", "best[height<=360]"))
+        # Twitch VODs can have unavailable ranges (deleted/expired sections);
+        # yt-dlp then writes a stream-less husk (observed: 262 bytes). Every
+        # downstream stage chokes on it differently — captions, facecam,
+        # render — so reject the candidate HERE, once, and let the bench
+        # refill. A real multi-second segment is never this small.
+        if not got.exists() or got.stat().st_size < 50_000:
+            print(f"  ! segment {i}: unusable download "
+                  f"({got.stat().st_size if got.exists() else 0} bytes — "
+                  f"VOD range unavailable) -> dropping candidate")
+            got.unlink(missing_ok=True)
+            return None
+        return got
 
     report("clipping", f"downloading {len(clips)} candidate moments")
     download_workers = min(
         max(1, int(cfg["clips"].get("download_workers", 3))), len(clips))
     with ThreadPoolExecutor(max_workers=download_workers) as pool:
         segs = list(pool.map(_download_one, enumerate(clips, 1)))
+    if any(s is None for s in segs):
+        clips = [m for m, s in zip(clips, segs) if s is not None]
+        segs = [s for s in segs if s is not None]
+        if not clips:
+            raise RuntimeError("every candidate segment failed to download "
+                               "(VOD unavailable or expired)")
 
     # 7. facecam: the screen is full of faces that aren't the streamer, and
     # OBS scenes move the cam around, so the only durable anchor is the

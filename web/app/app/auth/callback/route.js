@@ -9,7 +9,7 @@ export async function GET(request) {
   }
   const code = url.searchParams.get("code");
   if (code) {
-    const sb = serverClient();
+    const sb = await serverClient();
     const { data, error } = await sb.auth.exchangeCodeForSession(code);
     if (error || !data?.user) {
       return NextResponse.redirect(new URL("/login?error=session_failed", url.origin));

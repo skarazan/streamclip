@@ -10,7 +10,8 @@ const ERRORS = {
 
 export const metadata = { title: "Connect Twitch — StreamClip" };
 
-export default function LoginPage({ searchParams }) {
+export default async function LoginPage({ searchParams }) {
+  const query = await searchParams;
   return (
     <>
       <SiteHeader />
@@ -20,9 +21,9 @@ export default function LoginPage({ searchParams }) {
           Twitch OAuth is the only sign-in. StreamClip can process only VODs
           belonging to the connected channel.
         </p>
-        {searchParams?.error && (
+        {query?.error && (
           <p className="mt-6 rounded-xl border border-red-900/60 bg-red-950/20 p-3 text-sm text-red-300">
-            {ERRORS[searchParams.error] || "Sign-in failed. Please try again."}
+            {ERRORS[query.error] || "Sign-in failed. Please try again."}
           </p>
         )}
         <div className="mt-8">

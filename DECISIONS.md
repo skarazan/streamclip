@@ -243,3 +243,17 @@ queue depth through `worker_health`; web warns after five stale minutes.
 Service extraction is prepared locally, but creating a GitHub repository,
 Vercel deployment, paid Stripe products, webhooks, monitoring accounts, or
 live legal obligations remains an explicit founder deployment action.
+
+## 2026-07-25 — Launch on a supported, audited web runtime
+
+The extracted web service originally inherited Next 14 and React 18. A clean
+install reported high-severity production dependency advisories, so the launch
+baseline is now Next 16.2.11 and React 19.2.8. Server cookies, route params and
+page search params use the asynchronous request APIs required by Next 16.
+
+Next 16.2.11 still declares older PostCSS and Sharp ranges in its package
+metadata. The lockfile therefore pins audited replacements through explicit
+package overrides (`postcss@8.5.23`, `sharp@0.35.3`). Do not remove those
+overrides until the framework's own dependency tree resolves to equally new or
+newer releases. A production build and `npm audit` are required after every
+framework or override change; never use `npm audit fix --force` blindly.

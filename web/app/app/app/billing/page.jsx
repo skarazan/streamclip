@@ -6,7 +6,8 @@ import { serverClient } from "../../../lib/supabase";
 export const metadata = { title: "Billing — StreamClip" };
 
 export default async function BillingPage({ searchParams }) {
-  const sb = serverClient();
+  const sb = await serverClient();
+  const query = await searchParams;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) redirect("/login");
   const [{ data: profile }, { data: events }] = await Promise.all([
@@ -19,7 +20,7 @@ export default async function BillingPage({ searchParams }) {
     <main className="mx-auto max-w-4xl px-6 py-16">
       <a href="/app" className="text-sm font-bold text-purple-300">← Dashboard</a>
       <h1 className="mt-5 text-4xl font-black">Plan and credits</h1>
-      {searchParams?.checkout === "success" && (
+      {query?.checkout === "success" && (
         <p className="mt-5 rounded-xl border border-green-800/60 bg-green-950/20 p-4 text-green-300">
           Payment received. Stripe is updating your ledger now.
         </p>

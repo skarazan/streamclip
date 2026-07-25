@@ -7,7 +7,7 @@ import SettingsControls from "./SettingsControls";
 export const metadata = { title: "Settings — StreamClip" };
 
 export default async function SettingsPage() {
-  const sb = serverClient();
+  const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) redirect("/login");
   const { data: profile } = await sb.from("users")

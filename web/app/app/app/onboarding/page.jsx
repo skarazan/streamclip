@@ -5,7 +5,7 @@ import OnboardingForm from "./OnboardingForm";
 export const metadata = { title: "First clip setup — StreamClip" };
 
 export default async function OnboardingPage() {
-  const sb = serverClient();
+  const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) redirect("/login");
   const { count } = await sb.from("jobs")

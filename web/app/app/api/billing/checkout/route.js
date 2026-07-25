@@ -4,7 +4,7 @@ import { rest, serviceHeaders } from "../../../../lib/editJobs";
 import { PRODUCTS, stripeRequest } from "../../../../lib/stripe";
 
 export async function POST(request) {
-  const sb = serverClient();
+  const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const body = await request.json().catch(() => ({}));

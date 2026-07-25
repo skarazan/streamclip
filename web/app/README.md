@@ -6,6 +6,10 @@ from the CPU worker and communicates only through the Supabase/R2 contract in
 
 ## Local
 
+Requires Node.js 20.9 or newer. The lockfile pins the audited Next/React
+runtime and safe PostCSS/Sharp transitive versions; use `npm ci` rather than
+regenerating dependency ranges during deployment.
+
 ```bash
 cp .env.example .env.local
 npm ci

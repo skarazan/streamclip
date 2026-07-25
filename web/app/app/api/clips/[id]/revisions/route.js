@@ -5,10 +5,11 @@ import {
 } from "../../../../../lib/editJobs";
 
 export async function POST(request, { params }) {
-  const sb = serverClient();
+  const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const clip = await ownedClip(params.id, user.id);
+  const { id } = await params;
+  const clip = await ownedClip(id, user.id);
   if (!clip) return NextResponse.json({ error: "clip not found" }, { status: 404 });
   const body = await request.json().catch(() => ({}));
   const sourceJob = await fetch(

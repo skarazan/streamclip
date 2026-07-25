@@ -32,7 +32,7 @@ async function signed(key) {
 }
 
 export default async function Dashboard() {
-  const sb = serverClient();
+  const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) redirect("/login");
 

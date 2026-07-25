@@ -2,7 +2,7 @@ import Link from "next/link";
 import { serverClient } from "../../lib/supabase";
 
 export default async function SiteHeader() {
-  const sb = serverClient();
+  const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   return (
     <header className="border-b border-[#1c1c2e] bg-[#0a0a0f]/90 backdrop-blur">

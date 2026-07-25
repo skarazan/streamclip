@@ -16,14 +16,15 @@ const s3 = new S3Client({
 });
 
 export async function GET(request, { params }) {
-  const sb = serverClient();
+  const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  const { id } = await params;
   const rows = await fetch(
-    rest(`/jobs?id=eq.${params.id}&user_id=eq.${user.id}&select=progress`),
+    rest(`/jobs?id=eq.${id}&user_id=eq.${user.id}&select=progress`),
     { headers: serviceHeaders(), cache: "no-store" }
   ).then((response) => response.json());
   const progress = rows?.[0]?.progress;

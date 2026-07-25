@@ -22,7 +22,10 @@ function wakeLocalWorker() {
 
   // web/app -> repository root; the project brief defines the shared Python
   // environment as the sibling clipfarm/.venv.
-  const repo = path.resolve(process.cwd(), "../..");
+  const repo = path.join(
+    /* turbopackIgnore: true */ process.cwd(),
+    "../.."
+  );
   const python =
     process.env.STREAMCLIP_PYTHON ||
     path.resolve(repo, "../clipfarm/.venv/bin/python");
@@ -39,7 +42,7 @@ function wakeLocalWorker() {
 }
 
 export async function POST(request) {
-  const sb = serverClient();
+  const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 

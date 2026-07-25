@@ -27,7 +27,7 @@ const plans = [
 ];
 
 export default async function PricingPage() {
-  const sb = serverClient();
+  const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   return (
     <>

@@ -4,7 +4,7 @@ import { STYLE_PRESETS } from "../../../lib/stylePresets";
 import { OPENING_EFFECTS, TITLE_STRATEGIES } from "../../../lib/contentPresets";
 
 export async function POST(request) {
-  const sb = serverClient();
+  const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 

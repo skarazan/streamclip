@@ -8,10 +8,11 @@ const headers = () => ({
 });
 
 export async function PATCH(request, { params }) {
-  const sb = serverClient();
+  const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
+  const { id } = await params;
   const body = await request.json().catch(() => ({}));
   if ("feedback" in body) {
     const feedback = Number(body.feedback);
@@ -19,7 +20,7 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ error: "feedback must be 1 or -1" }, { status: 400 });
     }
     const feedbackResponse = await fetch(
-      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/clips?id=eq.${params.id}&user_id=eq.${user.id}`,
+      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/clips?id=eq.${id}&user_id=eq.${user.id}`,
       {
         method: "PATCH",
         headers: { ...headers(), Prefer: "return=representation" },
@@ -47,7 +48,7 @@ export async function PATCH(request, { params }) {
   }
 
   const r = await fetch(
-    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/clips?id=eq.${params.id}&user_id=eq.${user.id}`,
+    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/clips?id=eq.${id}&user_id=eq.${user.id}`,
     {
       method: "PATCH",
       headers: { ...headers(), Prefer: "return=representation" },

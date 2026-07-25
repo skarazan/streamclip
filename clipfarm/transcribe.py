@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import usage
 from .config import ffmpeg_path
 
 
@@ -74,9 +75,13 @@ def _groq_words(audio: Path, model: str, offset_s: float = 0.0,
             time.sleep(wait)
             continue
         r.raise_for_status()
+        payload = r.json()
+        # Groq bills whisper per second of audio, not per token; verbose_json
+        # already reports the duration it charged for.
+        usage.record(model, audio_seconds=payload.get("duration") or 0.0)
         return [Word(round(w["start"] + offset_s, 2),
                      round(w["end"] + offset_s, 2), w["word"].strip())
-                for w in (r.json().get("words") or [])]
+                for w in (payload.get("words") or [])]
     raise RuntimeError("groq transcription rate-limited after 5 retries")
 
 
@@ -156,11 +161,20 @@ def transcribe_clips_groq(items: list[tuple[Path, float]],
         def one(index_item: tuple[int, tuple[Path, float]]) -> list[Word]:
             j, (media, offset_s) = index_item
             audio = temp / f"seg_{j:02d}.ogg"
-            subprocess.run(
+            # a candidate whose audio can't be extracted (muted VOD section,
+            # audio-less download) must drop out with empty words — it fails
+            # arc verification downstream and the bench refills. One bad
+            # candidate crashing the caption pass killed full 37-min jobs.
+            ex = subprocess.run(
                 [ffmpeg_path(), "-y", "-v", "error", "-i", str(media),
                  "-vn", "-ac", "1", "-ar", "16000",
                  "-c:a", "libopus", "-b:a", "16k", str(audio)],
-                check=True, capture_output=True)
+                capture_output=True)
+            if ex.returncode != 0 or not audio.exists() or not audio.stat().st_size:
+                print(f"  ! segment {j + 1}: no usable audio "
+                      f"({ex.stderr.decode()[-120:].strip() or 'empty output'})"
+                      f" -> empty captions")
+                return []
             # context prompt biases decoding — screamed/slurred lines
             # resolve to plausible words instead of gibberish
             return _groq_words(
@@ -188,12 +202,21 @@ def transcribe_clips(items: list[tuple[Path, float]], model_name: str,
     model = WhisperModel(model_name, device=device, compute_type=ct)
     out: list[list[Word]] = []
     for media, offset_s in items:
-        segments, _ = model.transcribe(
-            str(media), word_timestamps=True, vad_filter=True, language="en",
-        )
-        out.append([Word(round(w.start + offset_s, 2),
-                         round(w.end + offset_s, 2), w.word.strip())
-                    for seg in segments for w in (seg.words or [])])
+        # same resilience rule as the groq path: a segment with undecodable
+        # audio yields empty captions and drops out downstream, it never
+        # kills the batch (av raises IndexError on audio-less files)
+        try:
+            segments, _ = model.transcribe(
+                str(media), word_timestamps=True, vad_filter=True,
+                language="en",
+            )
+            out.append([Word(round(w.start + offset_s, 2),
+                             round(w.end + offset_s, 2), w.word.strip())
+                        for seg in segments for w in (seg.words or [])])
+        except Exception as e:
+            print(f"  ! {Path(media).name}: transcription failed "
+                  f"({type(e).__name__}: {str(e)[:80]}) -> empty captions")
+            out.append([])
     return out
 
 

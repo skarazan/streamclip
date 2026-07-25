@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import usage
 from .transcribe import Word, energy_score
 
 PACING = 7  # seconds between scoring calls; 0 for paid providers
@@ -548,6 +549,7 @@ def _score_chunk_claude(client, model: str, body: str, system: str = None,
         )
     except anthropic.APIStatusError as e:
         raise RuntimeError(f"API error {e.status_code}") from e
+    usage.record_response(model, resp)
     if resp.stop_reason == "refusal":
         return {"moments": []}
     text = next((b.text for b in resp.content if b.type == "text"), "")
@@ -589,6 +591,10 @@ def _score_chunk_claude_code(client, model: str, body: str, system: str = None,
                 "claude CLI not logged in — run `claude` in a terminal, type "
                 "/login, choose your Claude subscription account")
         if r.returncode == 0:
+            # The CLI runs on the founder's Claude subscription and reports no
+            # usage block. Count the call so the dashboard shows "N calls,
+            # tokens unknown" rather than an unexplained $0.
+            usage.record_call(model)
             return _extract_json(r.stdout)
         last_err = (r.stderr.strip() or r.stdout.strip())[-500:]
     raise RuntimeError(f"claude CLI failed after 2 tries: {last_err}")
@@ -610,7 +616,12 @@ def _score_chunk_openai(client, model: str, body: str, system: str = None,
         # free tiers rate-limit hard; back off and retry
         for attempt in range(3):
             try:
-                return client.chat.completions.create(**kw)
+                resp = client.chat.completions.create(**kw)
+                # Recorded here, not at the return sites: a response whose
+                # json_schema body we then reject was still billed, and the
+                # founder's cost page has to show tokens actually paid for.
+                usage.record_response(kw.get("model") or model, resp)
+                return resp
             except Exception as e:
                 msg = str(e).lower()
                 # Daily/account quota exhaustion does not improve by sleeping;

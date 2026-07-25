@@ -24,6 +24,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from clipfarm import pipeline  # noqa: E402
+from clipfarm import usage  # noqa: E402
 from clipfarm.config import load_config  # noqa: E402
 
 
@@ -520,6 +521,9 @@ def resolve_auto_vod(job: dict) -> str | None:
 
 
 def process(job: dict) -> None:
+    # A Modal container is reused across jobs; without this the next job
+    # inherits the previous one's token counts.
+    usage.reset()
     kind = (job.get("progress") or {}).get("kind")
     if kind == "clip_source":
         process_clip_source(job)
@@ -624,6 +628,10 @@ def process(job: dict) -> None:
                 current_stage = stage
             progress.update({
                 "stage": stage, "detail": detail, "timings_s": timings,
+                # Piggyback on the existing per-stage PATCH instead of adding
+                # a write path: the founder cost page then sees a running
+                # job's spend grow without the worker knowing any prices.
+                "llm_usage": usage.snapshot(),
                 **extra,
             })
             sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
@@ -658,6 +666,7 @@ def process(job: dict) -> None:
                 "published": len(published_rows),
                 "ready_clip_ids": [r["id"] for r in published_rows],
                 "clip_recipes": recipes,
+                "llm_usage": usage.snapshot(),
                 "detail": (
                     f"{len(published_rows)} clip"
                     f"{'s' if len(published_rows) != 1 else ''} ready — "
@@ -719,6 +728,9 @@ def process(job: dict) -> None:
                           "published": len(inserted),
                           "processing_seconds": processing_seconds,
                           "estimated_modal_compute_usd": estimated_compute,
+                          # Final flush: the caption pass and any late editor
+                          # calls land after the last stage transition.
+                          "llm_usage": usage.snapshot(),
                           "fulfilled": result.get("fulfilled"),
                           "candidates": result.get("candidate_count"),
                           "verified": result.get("verified_count"),
@@ -754,7 +766,10 @@ def fail(job: dict, err: str) -> None:
             detail,
         )
         detail = disk_line.removeprefix("SystemExit: ")
-    progress.update({"stage": "failed", "detail": detail[:500]})
+    # A job that died halfway still burned tokens; the cost page must show
+    # them, so flush whatever the ledger holds for this job.
+    progress.update({"stage": "failed", "detail": detail[:500],
+                     "llm_usage": usage.snapshot()})
     sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
        json={"status": "failed", "error": err[-1500:],
              "progress": progress, "finished_at": "now()"})

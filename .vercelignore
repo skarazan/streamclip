@@ -1,0 +1,17 @@
+# Only web/app deploys to Vercel (project root = web/app).
+# Keep the pipeline, caches, and local build junk out of the upload.
+clipfarm
+worker
+benchmark
+research
+infra
+scripts
+out
+work
+tests
+run.log
+*.md
+web/landing
+web/app/.next
+web/app/.next-dev
+web/app/node_modules

@@ -37,3 +37,13 @@ use an eligible tax code. StreamClip is classified as business-use SaaS
 (`txcd_10103001`) because creators use the hosted tool to produce publishing
 assets; apply that code to both plans and both credit packs. No development
 action creates a charge.
+
+Stripe fulfillment requires
+`infra/migrations/20260725_service_contract.sql`; a successful Checkout
+redirect is not proof that credits reached the ledger. Production uses signed
+webhooks. The success URL also carries Stripe's Checkout Session ID and calls
+the authenticated `/api/billing/reconcile` fallback, which verifies ownership
+and paid state with Stripe before applying the same idempotent ledger keys.
+This makes localhost sandbox purchases converge even when Stripe cannot send a
+webhook to a private loopback address, without double-granting when the
+webhook later arrives.

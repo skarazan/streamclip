@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import CheckoutButton from "../../components/CheckoutButton";
+import CheckoutReconciler from "../../components/CheckoutReconciler";
 import PortalButton from "../../components/PortalButton";
 import { serverClient } from "../../../lib/supabase";
 
@@ -20,7 +21,9 @@ export default async function BillingPage({ searchParams }) {
     <main className="mx-auto max-w-4xl px-6 py-16">
       <a href="/app" className="text-sm font-bold text-purple-300">← Dashboard</a>
       <h1 className="mt-5 text-4xl font-black">Plan and credits</h1>
-      {query?.checkout === "success" && (
+      {query?.checkout === "success" && query?.session_id ? (
+        <CheckoutReconciler sessionId={query.session_id} />
+      ) : query?.checkout === "success" && (
         <p className="mt-5 rounded-xl border border-green-800/60 bg-green-950/20 p-4 text-green-300">
           Payment received. Stripe is updating your ledger now.
         </p>

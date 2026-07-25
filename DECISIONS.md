@@ -266,3 +266,15 @@ hosted creator tool, so all four use Stripe's business-use SaaS code
 `txcd_10103001`. Product provisioning is incomplete until the tax code is
 verified alongside amount, interval and active status. Raw Stripe
 configuration errors stay in server logs and are never rendered to customers.
+
+## 2026-07-25 — A Checkout redirect is not fulfillment
+
+Stripe can redirect a successful localhost purchase while its webhook cannot
+reach the loopback server. The billing page previously claimed Stripe was
+updating the ledger forever, even when the billing migration was absent.
+Signed webhooks remain authoritative in production. As a recovery path, the
+Checkout success URL now includes Stripe's opaque Session ID; an authenticated
+endpoint retrieves it server-side, verifies the paid state and user ownership,
+then applies the same idempotent subscription/invoice or credit-pack ledger
+keys as the webhook. This safely converges webhook-first and redirect-first
+delivery and exposes a bounded setup message when the migration is missing.

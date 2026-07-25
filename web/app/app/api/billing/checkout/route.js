@@ -25,7 +25,7 @@ export async function POST(request) {
     mode: product.mode,
     "line_items[0][price]": product.price(),
     "line_items[0][quantity]": 1,
-    success_url: `${origin}/app/billing?checkout=success`,
+    success_url: `${origin}/app/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/pricing?checkout=cancelled`,
     client_reference_id: user.id,
     "metadata[user_id]": user.id,

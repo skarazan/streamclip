@@ -257,6 +257,21 @@ Every user verdict correlated with one thing: whether the clip's
 trigger→payoff arc is *audibly inside the clip*. Clips that verified were
 "cinema"; clips that didn't were "random bs." Six for six.
 
+**2026-07-25 counter-evidence — the gate is necessary but NOT sufficient.**
+Arc verification is a check on ORDER and PRESENCE of two quotes. It does not
+check that the payoff is a payoff. A slot-machine spin whose trigger was
+"Oh yeah, one more" and whose button was "Bang! Times three! Woo!" verified
+cleanly, scored 8, shipped, and the founder rejected it as "random gameplay,
+no good reaction no nothing" — the payoff was an on-screen payline the 9:16
+crop never showed. Two of three clips in that batch failed for the same
+reason while passing every gate we own.
+
+So "verified" must not be read as "good". The gate stops us shipping clips
+whose story is *absent*; it cannot stop us shipping clips whose story is
+*trivial*. Founder's stated bar, which nothing in the pipeline currently
+encodes: **a clip needs a story, or an instant funny reward, led into by a
+hook.**
+
 So the editor must emit `trigger_quote` and `button_quote`, and before render
 those are fuzzy-matched against the clip's **own** captions (≥45% token
 overlap — the two transcriptions differ in wording).

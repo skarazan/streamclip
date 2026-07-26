@@ -25,6 +25,18 @@ Comparable tools (Opus Clip, Eklipse, Sizzle, Powder): $10–30/mo, generic
 LLM-scored highlights, weak on gaming/react formats, none do crowd grounding.
 We price inside the band and win on output quality per gaming stream.
 
+> **REALITY CHECK (2026-07-25, VP Eng).** Differentiators 2 and 3 above are
+> currently ASPIRATIONAL, not demonstrated. Across every batch reviewed this
+> week the founder's verdict has been "mid" or worse, and the one batch scored
+> clip-by-clip came in at **1 good of 3**. The arc-verified gate passed a
+> slot-machine spin as a valid story (PROJECT.md §4 counter-evidence), so
+> "output doesn't feel random" is not yet true. Seven infrastructure defects
+> were fixed on 2026-07-25 — a segment-download failure, an editor pass that
+> had never run, a wrong persona, a 30s pre-roll bug, and more — and **none of
+> them moved perceived quality.** Do not use "we win on output quality" in
+> marketing copy, the landing page, or investor/waitlist material until a
+> labelled batch supports it. See §4 P0-0.
+
 **Positioning line:** "Your community already marks the funny moments.
 StreamClip turns them into Shorts while you sleep."
 
@@ -107,6 +119,36 @@ hold to roughly 30–50 users, which is conveniently our validation gate.
 ## 4. Sellability gap diagnosis
 
 Ordered by "blocks charging money" first:
+
+**P0-0 — OUTPUT QUALITY. The actual blocker, added 2026-07-25.**
+
+Every other item here is plumbing for selling a product customers want. The
+evidence does not yet show they would want this one. Standing position:
+
+- Founder verdict on every reviewed batch this week: "mid" or worse. The one
+  batch labelled clip-by-clip: **1 good of 3.**
+- Seven infrastructure defects fixed on 2026-07-25 (husk downloads, an editor
+  pass that had never once run in production, the wrong persona on every
+  customer job, a pre-roll bug that opened clips 30s before their trigger,
+  silent chunk loss, scoring timeouts, admin gating). Quality did not move.
+- Four selection changes attempted the same day: **1 worked** (archetype enum),
+  3 did not. A controlled re-run of the other two REGRESSED — it kept the clip
+  the founder rejected and dropped the one he liked.
+- Root cause is not framing or plumbing. It is which moments get picked, and
+  what "good" means is not encoded anywhere. Founder's bar: *a story, or an
+  instant funny reward, led into by a hook.* Nothing in the pipeline tests for
+  that; the arc gate only tests that two quotes appear in order.
+
+**The measurement gap is the binding constraint.** 71 clips have shipped; 3
+are labelled. At n=3 no change can be distinguished from variance, which is
+exactly how the earlier "absolute dogshit" round happened. Recommended gate
+before any further selection engineering: **~20 labelled clips**, then an
+offline replay harness over cached transcripts (cents per run, no rendering).
+
+Consequences for the plan: the ≥30-waitlist phase gate should not be spent
+until a labelled batch clears a stated bar, and the "quality gate means count
+is a target, not a promise" pricing line in §2 is currently doing real work —
+keep it.
 
 **P0 — code implemented 2026-07-25; deployment gates remain**
 1. **Stripe**: Checkout for both plans and both credit packs, Customer Portal,

@@ -412,3 +412,47 @@ opening within 3s 1/8 -> 7/8, mean duration 34.8s -> 28.7s.
   pre-roll, is the binding constraint on short arcs — treat separately.
 - Containment: the crowd-peak invariant is untouched; arc_window_start still
   never starts before the editor's chosen moment window.
+
+## 2026-07-25 — Selection constraints belong in schema or code, not in prose
+
+The editor pass posted a slot-machine spin the founder rejected as "random
+gameplay, no good reaction". Three fixes were tried and A/B'd on the same VOD
+with cached scoring, so only the editor prompt varied.
+
+The schema constraint worked. `RERANK_SCHEMA.archetype` had been free text
+while `MOMENT_SCHEMA` constrained it to 12 values, so the editor invented
+labels ("slot win reaction", "jumpscare / panic") that matched nothing and the
+physical_fail / clutch_needs_replay rejections could never fire on the pass
+that decides what ships. Sharing the enum fixed that immediately: all 15
+judgments came back valid and the filter dropped three previously-shippable
+candidates.
+
+Both prose rules failed. "Loudness can only reject, never justify; never write
+'loudness confirms'" produced "Loudness >0.40 **supports** the celebratory
+shout." An explicit test — "with the gameplay pane blank, does the audio alone
+still land?" — produced the assertion "streamer yells a joyous line that
+**needs no visuals**", for a slot payout, followed by a post decision.
+
+A prompt cannot hold a constraint while the same prompt asks the model to fill
+a batch. It will assert compliance rather than reject and come up short.
+
+Second-order effect worth remembering: constraining the enum made the model
+LABEL-SHOP rather than reject. A gambling win came back as `wholesome` — the
+nearest allowed value that evades the filter. Narrowing an output space
+redirects behaviour; it does not by itself raise the bar.
+
+Decision: selection constraints that must hold go in code or schema.
+`quality.cap_game_triggered()` is the first — game-triggered picks capped at
+half a batch, only when a verified non-game candidate exists further down the
+bench, and never banning the category (jumpscares are legitimately
+game-triggered).
+
+- Benefit: the constraint cannot be argued past.
+- Cost: code rules are blunt and cannot read context the model can.
+- Containment: the cap defers, never rejects outright, and starves nothing —
+  an all-game bench still ships. It is UNTESTED against a real run.
+
+Standing caution: that day's selection work went 1 for 4, and the two prose
+rules regressed a batch — keeping a clip the founder rejected and dropping the
+one he liked. With 3 labelled clips out of 71 shipped, no selection change can
+be distinguished from variance. Get labels before engineering further.

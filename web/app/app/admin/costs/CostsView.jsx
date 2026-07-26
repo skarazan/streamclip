@@ -270,6 +270,14 @@ export default function CostsView({ profile, data }) {
                   <td className="px-3 py-3 text-gray-400">
                     {job.clips}
                     {job.requested != null ? ` / ${job.requested}` : ""}
+                    {job.chunksTotal != null &&
+                      job.chunksScored != null &&
+                      job.chunksScored < job.chunksTotal && (
+                        <div className="mt-1 text-[10px] font-bold text-amber-400">
+                          {job.chunksTotal - job.chunksScored} of{" "}
+                          {job.chunksTotal} chunks unscored
+                        </div>
+                      )}
                   </td>
                   <td className="px-3 py-3 text-right text-gray-300">
                     {usd(job.llmUsd)}

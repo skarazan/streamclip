@@ -272,8 +272,10 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
             print(f"  {len(moments)} scored moments from cache "
                   f"({mom_cache.name})")
         else:
+            scoring_stats: dict = {}
             moments = detect.score_with_llm(
                 words, llm["model"], llm["chunk_minutes"], log=_score_log,
+                stats=scoring_stats,
                 base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
                 streamer=cfg.get("streamer_name", "the streamer"),
                 fallback_models=llm.get("fallback_models"), profile=profile,
@@ -281,6 +283,16 @@ def analyze_vod(cfg: dict, vod_url: str, vod_work: Path, report=None,
                 title_strategy=cfg.get("style", {}).get(
                     "title_strategy", "curiosity"),
                 reasoning_effort=llm.get("reasoning_effort"))
+            # A chunk lost on every model means that slice of the stream was
+            # never scored. Put it in progress so a thin batch has a visible
+            # cause on /admin/costs instead of reading as a weak VOD.
+            if scoring_stats:
+                report("scoring",
+                       f"{scoring_stats['chunks_scored']}/"
+                       f"{scoring_stats['chunks_total']} chunks scored",
+                       chunks_total=scoring_stats["chunks_total"],
+                       chunks_scored=scoring_stats["chunks_scored"],
+                       chunks_unscored=scoring_stats["chunks_unscored"])
             if moments:
                 mom_cache.write_text(json.dumps(
                     [{"start": m.start, "end": m.end, "score": m.score,

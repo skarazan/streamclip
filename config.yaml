@@ -74,7 +74,13 @@ llm:
   # extra candidates cost segment downloads and renders downstream. `low` kept
   # the highest-scoring pick of the three. n=1 chunk: A/B a full Tier-C VOD
   # against progress.llm_usage before making a non-null value the default.
-  reasoning_effort: null
+  # Enabled 2026-07-25 on production evidence, not the bench above: a real 5h
+  # job spent 112,576 of 123,905 output tokens (91%) on hidden reasoning, cost
+  # $0.27 for scoring alone, and timed out 3 of 38 chunks. `low` cuts latency
+  # ~46% (which is what fixes the timeouts) and cost ~37%. The editor/judge
+  # pass is untouched and keeps full reasoning — that call is the quality gate.
+  # If selection quality drops, this is the first thing to revert.
+  reasoning_effort: "low"
 
 # Visual style — matched to @CheeseDipClips
 style:

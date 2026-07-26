@@ -694,7 +694,12 @@ def _fn_for(name: str):
 # editor judgement that DECISIONS.md calls the strongest quality lever.
 # A client-side timeout also does not cancel the provider's work, so the
 # tokens were billed and thrown away.
-SCORING_TIMEOUT_S = 60.0
+# 60s was calibrated on ONE sampled chunk that used 1,792 reasoning tokens.
+# Production chunks average ~3,216 (measured over 35 calls on a 5h VOD), so the
+# tail ran past the ceiling and 3 of 38 chunks timed out. Two recovered on the
+# Groq rung; one failed every model and its ~8 minutes of VOD silently
+# contributed no candidates at all. Size this off the tail, not the median.
+SCORING_TIMEOUT_S = 120.0
 EDITOR_TIMEOUT_S = 300.0
 
 
@@ -744,6 +749,7 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
                    chat: list[tuple[float, str]] | None = None,
                    title_strategy: str = "curiosity",
                    reasoning_effort: str | None = None,
+                   stats: dict | None = None,
                    ) -> list[Moment]:
     _models = [model] + [m for m in (fallback_models or []) if m != model]
     persona_txt = PERSONAS.get(persona, PERSONAS["generic"]).format(
@@ -805,6 +811,22 @@ def score_with_llm(words: list[Word], model: str, chunk_minutes: int,
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
         chunk_results = list(ex.map(_score_one, enumerate(chunks, 1)))
+
+    # A chunk that fails on EVERY rung returns None and its slice of the VOD
+    # contributes no candidates. That used to vanish without a trace: on a 5h
+    # job chunk 16 timed out on gpt-5-mini, 429'd on both Gemini rungs and on
+    # Groq, and ~8 minutes of stream were silently unscored. Report it so a
+    # thin batch has a visible cause instead of looking like a bad VOD.
+    lost = [i for i, data in enumerate(chunk_results, 1) if data is None]
+    if lost:
+        log(f"  ! {len(lost)}/{len(chunks)} chunks unscored on every model "
+            f"(chunks {', '.join(map(str, lost[:8]))}"
+            f"{'...' if len(lost) > 8 else ''}) — that stream time had no "
+            f"candidates generated")
+    if stats is not None:
+        stats["chunks_total"] = len(chunks)
+        stats["chunks_scored"] = len(chunks) - len(lost)
+        stats["chunks_unscored"] = lost
 
     moments: list[Moment] = []
     for data in chunk_results:

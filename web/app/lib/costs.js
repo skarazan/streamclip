@@ -194,6 +194,10 @@ export async function collectCosts(now = Date.now()) {
         : null,
       clips: clipCount.get(job.id) || 0,
       requested: job.progress?.requested ?? null,
+      // Chunks lost on every model. That stream time produced no candidates,
+      // so a thin batch has a cause instead of looking like a weak VOD.
+      chunksTotal: job.progress?.chunks_total ?? null,
+      chunksScored: job.progress?.chunks_scored ?? null,
       models: Object.entries(usage).map(([model, entry]) => ({
         model,
         calls: Number(entry.calls || 0),

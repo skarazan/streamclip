@@ -124,6 +124,22 @@ Example shape: "“You all just witnessed that…”".""",
 }
 
 
+def prompt_fingerprint() -> str:
+    """Short hash of every prompt surface that can change selection.
+
+    The harness records this next to each score. Without it a bench result is
+    unattributable: you cannot tell whether a number moved because the prompt
+    changed or because the corpus did.
+    """
+    import hashlib
+    blob = "\0".join([SYSTEM, EDITOR, SMARTCUT_SYS,
+                      json.dumps(MOMENT_SCHEMA, sort_keys=True),
+                      json.dumps(RERANK_SCHEMA, sort_keys=True),
+                      json.dumps(PERSONAS, sort_keys=True),
+                      json.dumps(TITLE_PACKAGING, sort_keys=True)])
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
+
+
 def title_packaging(strategy: str) -> str:
     return TITLE_PACKAGING.get(strategy, TITLE_PACKAGING["curiosity"])
 

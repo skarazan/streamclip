@@ -38,6 +38,9 @@ def main() -> int:
                     help="'claude-code:<model>' runs on the Claude "
                          "subscription via the CLI — no API spend")
     ap.add_argument("--min-free-gb", type=float, default=4.0)
+    ap.add_argument("--cards", action="store_true",
+                    help="keep the 0.9s title card between clips (default: "
+                         "off — the founder found they break the flow)")
     args = ap.parse_args()
 
     have = free_gb()
@@ -72,6 +75,7 @@ def main() -> int:
     print(f"clips     {args.clips}  (~{target_min:.0f} min finished, 1920x1080)")
     print(f"scorer    {args.model}  -> $0 LLM (Claude subscription)")
     print(f"streams   last {args.streams} VODs")
+    print(f"cards     {'on' if args.cards else 'off — straight cuts'}")
     print(f"disk      {have:.1f} GB free\n")
 
     usage.reset()
@@ -81,6 +85,7 @@ def main() -> int:
             title=args.title,
             streams=args.streams,
             target_min=target_min,
+            inter_clip_cards=args.cards,
         )
     finally:
         snap = usage.snapshot()

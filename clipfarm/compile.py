@@ -142,7 +142,8 @@ def compile_video(channel: str, title: str, streams: int = 4,
                   target_min: float = 14.0, clip_len: float = CLIP_LEN,
                   quality: str = "best[height<=1080]",
                   style_user_id: str | None = None,
-                  brand: str | None = None) -> dict:
+                  brand: str | None = None,
+                  inter_clip_cards: bool = True) -> dict:
     if brand is None:
         brand = load_config()["output"].get("brand", "")
     # count is set by the required 11-18 min finished length at clip_len each
@@ -165,7 +166,12 @@ def compile_video(channel: str, title: str, streams: int = 4,
     work = Path(tempfile.mkdtemp(prefix="comp_"))
 
     rendered, chapters, cursor = [], [], 0.0
-    card_dur = 0.9
+    # Founder 2026-07-26, watching the first 15-clip cut: the cards "mess up
+    # the flow". They were there to brand the video and mark chapter starts;
+    # chapters survive without them because the timestamps are computed here,
+    # not read off the cards. Cutting straight from payoff to next setup keeps
+    # the momentum a compilation lives on.
+    card_dur = 0.9 if inter_clip_cards else 0.0
     n = len(clips)
     for i, c in enumerate(clips):
         # widen the tight short-form pick to ~clip_len of context, centred on
@@ -186,7 +192,7 @@ def compile_video(channel: str, title: str, streams: int = 4,
         # branded inter-clip card — but NEVER before the opener: retention
         # data shows the first seconds decide everything, so the video must
         # open mid-banger, not on 0.9s of black card
-        if i == 0:
+        if i == 0 or not inter_clip_cards:
             rendered.append(final)
             chapters.append((cursor, c["title"]))
             cursor += clip_len
@@ -270,8 +276,12 @@ if __name__ == "__main__":
         help="Supabase user id whose caption preset to match")
     ap.add_argument("--brand", default=None,
                     help="watermark/card brand text (default: config output.brand)")
+    ap.add_argument("--no-cards", action="store_true",
+                    help="drop the 0.9s title card between clips — cuts "
+                         "straight from one payoff into the next setup")
     a = ap.parse_args()
     title = a.title or f"{a.channel}'s Funniest Moments"
     compile_video(a.channel, title, streams=a.streams,
                   target_min=a.target_min, clip_len=a.clip_len,
-                  style_user_id=a.style_user, brand=a.brand)
+                  style_user_id=a.style_user, brand=a.brand,
+                  inter_clip_cards=not a.no_cards)

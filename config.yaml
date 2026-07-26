@@ -56,11 +56,13 @@ llm:
   #     OpenRouter: base_url: https://openrouter.ai/api/v1          api_key_env: OPENROUTER_API_KEY  (":free" models)
   # benchmark 2026-07-04 (blind Claude judging): gpt-5-mini best picks/hooks.
   # ~$0.045/stream. scout = fast free fallback, gemini third (free-tier flaky).
-  # PAID primary since 2026-07-25 (~$0.07/6h VOD): the free-tier chain spent
-  # ~40 min per Tier-C job in 429 retries. Free models are the fallback now,
-  # not the path customers wait on.
-  model: "gpt-5-mini"
-  fallback_models: ["gemini-3.5-flash", "gemini-3.6-flash", "claude-code", "llama-3.3-70b-versatile"]
+  # A/B TEST 2026-07-26 (founder request): gemini fronting again — the batches
+  # he rated highest were gemini-era, and the "gpt-5-mini best" benchmark is
+  # from July 4. One controlled run on VOD 2821788113 (has labeled gpt-5-mini
+  # baseline), then revert or keep on his verdict. gpt-5-mini is the safety
+  # net so an editor-pass 429 degrades to the PAID model, not to llama.
+  model: "gemini-3.5-flash"
+  fallback_models: ["gemini-3.6-flash", "gpt-5-mini", "llama-3.3-70b-versatile"]
   base_url: null
   api_key_env: "OPENAI_API_KEY"
   chunk_minutes: 8      # small chunks: free-tier TPM limits

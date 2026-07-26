@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from clipfarm.quality import (
-    MotionResult, arc_window_start, contextual_preroll, duration_budget, inactive_gap_reason,
+    MotionResult, arc_window_start, cap_game_triggered, contextual_preroll, duration_budget, inactive_gap_reason,
     closing_beat_end, inspect_media, longest_speech_gap, low_substance_reason,
     remove_idle_gaps,
     needs_visual_bridge, should_cut_idle_gap,
@@ -237,3 +237,31 @@ class ArcWindowStartTests(unittest.TestCase):
             with self.subTest(pre_roll=pre_roll):
                 lead = 100.0 - arc_window_start(100.0, 0.0, pre_roll)
                 self.assertLessEqual(lead, 6.0)
+
+
+class GameTriggerCapTests(unittest.TestCase):
+    """A batch must not be entirely reactions to game events.
+
+    The founder rejected two of three clips as "random gameplay, no good
+    reaction"; all three POST decisions that batch were trigger_role=game.
+    The same rule in the editor prompt was rationalised away, so it lives in
+    code.
+    """
+
+    def test_all_game_batch_defers_to_a_non_game_alternative(self):
+        roles = ["game", "game", "game", "streamer"]
+        kept = cap_game_triggered(roles, want=3)
+        self.assertEqual([roles[i] for i in kept], ["game", "streamer"])
+
+    def test_keeps_game_picks_when_no_alternative_exists(self):
+        # never starve a batch: if the bench is all game-triggered, ship them
+        roles = ["game", "game", "game"]
+        self.assertEqual(cap_game_triggered(roles, want=3), [0, 1, 2])
+
+    def test_mixed_batches_are_untouched(self):
+        roles = ["streamer", "game", "chat"]
+        self.assertEqual(cap_game_triggered(roles, want=3), [0, 1, 2])
+
+    def test_jumpscares_are_not_banned_outright(self):
+        # a single game-triggered pick always survives, whatever `want` is
+        self.assertIn(0, cap_game_triggered(["game", "streamer"], want=1))

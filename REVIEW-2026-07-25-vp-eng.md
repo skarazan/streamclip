@@ -187,6 +187,66 @@ Note the pattern across both investigations: `trigger_role` was `game` here,
 and 0 of 17 candidates in the earlier manifest attributed the trigger to the
 streamer. §3.2 remains the largest open selection issue.
 
+
+### I-bis. Test result: the §1.I fixes were a REGRESSION
+
+Controlled re-run of the same VOD (`a3ff7e36`). Scored moments came from cache
+so the scorer was identical; only the editor prompt changed, which changed the
+judgment cache key and forced a fresh editor call. Clean A/B on one variable.
+
+**Outcome: worse.** Founder's verdict on the new batch: "the good clip is gone
+and replaced by sm bs."
+
+    OLD  2417.4-2438.7s  "Three pots landed on one spin"
+    NEW  2417.4-2438.7s  "He asked chat for one more spin"   <- identical range
+
+The slot-machine clip he rejected survived, retitled. The clip he liked (the
+router/QR moment) was dropped. Two unrelated moments replaced it, also
+unwanted.
+
+What each fix actually did:
+
+**Archetype enum — WORKED.** All 15 judgments used enum values; the invented
+labels ("slot win reaction", "jumpscare / panic") are gone, and the new
+editor-path filter dropped 2 `clutch_needs_replay` and 1 `irl_reveal` that
+would previously have been shippable. Rejections went from ~0 to 6 reject /
+6 bench / 3 post out of 15. Keep this — it is a real schema bug fix.
+
+**Loudness veto — RATIONALISED AWAY.** I banned "loudness confirms" and stated
+the number can only reject. The model wrote "Loudness >0.40 **supports** the
+celebratory shout." 2 of 15 reasons still cite loudness.
+
+**Off-screen payoff — ARGUED PAST.** I gave it the explicit test "with the
+gameplay pane blank, does the audio alone still land?" For a slot payout the
+model asserted "streamer yells a joyous line that **needs no visuals**" and
+posted it.
+
+**Unintended side effect:** constraining the archetype enum made the model
+LABEL-SHOP. It classified a gambling win as `wholesome` — the nearest allowed
+value that evades the filter.
+
+**The lesson, which is worth more than the fixes working would have been:**
+a prompt rule that asks the model to self-assess does not hold when the same
+prompt also asks it to fill a batch. It will assert compliance. The enum
+worked *because* it is a schema constraint, not a request. Selection
+constraints belong in code or schema, not in prose.
+
+Acting on that: `quality.cap_game_triggered()` now caps game-triggered picks at
+half a batch, deterministically, and only when a verified non-game candidate
+exists further down the bench. It does not ban game triggers — jumpscares are
+legitimately game-triggered and DECISIONS.md protects them. Evidence: 9/15 and
+17/17 triggers attributed to the game across two batches, all 3 POSTs in the
+reviewed batch game-triggered, 2 of 3 rejected by the founder.
+
+**This cap is UNTESTED against a real run.** It is reasoned from n=3 labels.
+Given that the last three prompt-level selection changes made output worse, it
+should be validated before anything further is built on it.
+
+**Recommendation to COO/CTO: freeze selection changes until there are more
+labels.** Today's selection work went 1 for 4 (enum yes; loudness, off-screen,
+and net batch quality no). The binding constraint is not ideas, it is that
+n=3 cannot distinguish a real improvement from variance.
+
 ---
 
 ## 2. Correct a number in BUSINESS.md §3
@@ -374,10 +434,9 @@ hypotheses in §3.1 and §1.I but not to test them. Cached transcripts in
 against, and ~10 more would make the title question decidable instead of
 arguable.
 
-**Unverified claim worth flagging:** §1.I's three fixes are reasoned from one
-labelled batch and are not yet validated by a run. The next batch on a fresh
-VOD is the test. If slot-machine-style clips still ship, the off-screen-payoff
-rule is not landing and the problem is deeper than prompt wording.
+**§1.I was tested and regressed — see §1.I-bis.** The slot clip survived, the
+liked clip was lost. Only the archetype enum fix earned its place. The
+`cap_game_triggered` rule added afterwards is itself untested.
 
 ---
 

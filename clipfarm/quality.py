@@ -73,6 +73,38 @@ def low_substance_reason(decision: str, button_kind: str,
     return None
 
 
+GAME_TRIGGER_ROLES = {"game", "npc", "video"}
+
+
+def cap_game_triggered(roles: list[str], want: int) -> list[int]:
+    """Indices to keep so a batch is not made entirely of game-triggered picks.
+
+    Deterministic on purpose. The same rule expressed in the editor prompt was
+    rationalised away — asked whether a slot-machine payout needed visuals, the
+    model answered "streamer yells a joyous line that needs no visuals" and
+    posted it. A schema/code constraint holds where a request does not.
+
+    Evidence: across two judged batches the editor attributed 9/15 and 17/17
+    triggers to the game, all three POST decisions in the batch the founder
+    reviewed were game-triggered, and he rejected two of the three as "random
+    gameplay, no good reaction". This does NOT ban game triggers — jumpscares
+    and horror reactions are legitimately game-triggered and DECISIONS.md
+    protects them. It only stops a batch being nothing but them, and only when
+    a verified non-game alternative actually exists further down the bench.
+    """
+    limit = max(1, want // 2)          # at most half the batch, at least one
+    kept, game_used = [], 0
+    for i, role in enumerate(roles):
+        if (role or "").lower() in GAME_TRIGGER_ROLES:
+            if game_used >= limit and any(
+                    (r or "").lower() not in GAME_TRIGGER_ROLES
+                    for r in roles[i + 1:]):
+                continue               # a non-game candidate is still coming
+            game_used += 1
+        kept.append(i)
+    return kept
+
+
 def contextual_preroll(trigger_quote: str, trigger_role: str,
                        reason: str = "") -> float:
     """Context runway without blindly adding six quiet seconds."""

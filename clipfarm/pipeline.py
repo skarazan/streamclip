@@ -619,6 +619,15 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     # rank order until the requested number of artifacts pass.
     keep_idx.sort(key=lambda i: (
         clips[i].decision != "post", -clips[i].score, not cams[i]))
+    # Don't let a whole batch be game-triggered reactions. Deterministic
+    # because the equivalent editor-prompt rule was rationalised away.
+    kept_positions = quality.cap_game_triggered(
+        [clips[i].trigger_role for i in keep_idx], want)
+    if len(kept_positions) < len(keep_idx):
+        dropped = len(keep_idx) - len(kept_positions)
+        print(f"  bench: deferred {dropped} game-triggered candidate(s) so the "
+              f"batch isn't only reactions to game events")
+        keep_idx = [keep_idx[p] for p in kept_positions]
     clips = [clips[i] for i in keep_idx]
     segs = [segs[i] for i in keep_idx]
     cams = [cams[i] for i in keep_idx]

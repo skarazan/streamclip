@@ -225,7 +225,17 @@ RERANK_SCHEMA = {
                         "streamer", "chat", "game", "npc", "video", "other"]},
                     "button_role": {"type": "string", "enum": [
                         "streamer", "game", "npc", "video", "other"]},
-                    "archetype": {"type": "string"},
+                    # Free text here meant the editor invented labels like
+                    # "jumpscare / panic", so low_substance_reason's rejections
+                    # of physical_fail / destructive_rage / clutch_needs_replay
+                    # could never match — the pass that decides what SHIPS was
+                    # the one whose archetypes nothing checked.
+                    "archetype": {"type": "string", "enum": [
+                        "banter_roast", "soundbite", "bit_commitment",
+                        "stinger", "wholesome", "rage_arc",
+                        "coincidence_verbal", "physical_fail",
+                        "destructive_rage", "irl_reveal",
+                        "clutch_needs_replay", "other"]},
                     "decision": {"type": "string", "enum": [
                         "post", "bench", "reject"]},
                     "reject_reason": {"type": "string"},
@@ -266,8 +276,12 @@ richer moment that opens slow. Judge each candidate's post_score 1-10
 - one clear peak beat that lands with ZERO stream context
 - escalation: it builds to the peak; flat-voiced repetition is filler, not
   drama, no matter how strong the words are
-- delivery: measured loudness is given per candidate (0..1). Genuine
-  screaming/meltdown is >= 0.40; below that, rage/"loses it" claims are false
+- delivery: measured loudness is given per candidate (0..1). This is a VETO
+  ONLY, never a reason to post: below 0.40, rage/"loses it" claims are false
+  and must be rejected. Above 0.40 proves NOTHING except that he was loud —
+  game volume being high does not make a moment funny. Never write "loudness
+  confirms" or cite the number as evidence FOR a clip; if loudness is the
+  strongest thing you can say about a candidate, reject it
 - the peak must sit in the FINAL third: everything after the punchline is
   retention poison. If the source rambles on after the peak, cut the end to
   2-3s after the peak lands
@@ -293,6 +307,21 @@ Return EVERY candidate exactly once, ordered best to worst. Mark each as
 replace a failed post candidate. Give a concrete reject_reason for rejects.
 Label button_kind, trigger_role, and button_role. A game/NPC/video may be the
 trigger, but only the streamer's own speech or scream can be the button.
+
+OFF-SCREEN PAYOFF — automatic reject. The viewer sees a 9:16 crop: the
+streamer's cam over one slice of gameplay. If understanding WHY the moment
+lands requires reading a game-state event — a slot payline, loot roll, score,
+killfeed, rank change, inventory, a menu — reject it, even when he reacts
+loudly and even when the arc verifies. "He spun and won and got excited" is
+not a story: the payoff lives on a screen we cannot promise is in frame.
+Ask: with the gameplay pane BLANK, does the audio alone still deliver a story
+or an instant laugh? If no, reject.
+
+WHAT ACTUALLY SHIPS: a story, or an instant funny reward, that a hook can lead
+into. Something must HAPPEN TO or BECAUSE OF the streamer that a stranger who
+has never seen him can follow start to finish. Hype at a good game outcome is
+the most common false positive after loudness — it feels like a peak from
+inside the stream and reads as nothing from outside it.
 Also return tightened start/end as ABSOLUTE stream seconds — transcript lines
 carry [seconds] markers; anchor your cuts to them, never to offsets within the
 snippet. Stay within 20s of the suggestion, 18-45s long, peak in the final
@@ -1087,6 +1116,17 @@ story/retention bar merely to hit the number."""
         if not (1 <= int(c["id"]) <= len(cand)) or int(c["id"]) in seen:
             continue
         seen.add(int(c["id"]))
+        # Same structural rejection score_with_llm applies, now enforced on the
+        # pass that actually decides what SHIPS. These archetypes put the payoff
+        # somewhere a 9:16 crop with captions cannot show it, so a loud reaction
+        # to them reads as random gameplay to a cold viewer. This could not fire
+        # before: RERANK_SCHEMA left `archetype` free text and the editor
+        # invented labels like "jumpscare / panic" that matched nothing.
+        if c.get("archetype") in ("physical_fail", "destructive_rage",
+                                  "irl_reveal", "clutch_needs_replay"):
+            log(f"  editor pick {c['id']} dropped: {c.get('archetype')} "
+                f"payoff cannot be shown in our format")
+            continue
         m = cand[int(c["id"]) - 1]
         s, e = float(c["start"]), float(c["end"])
         lo, hi = (m.start - 90, m.end + 40) if m.crowd else (m.start - 25,

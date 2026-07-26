@@ -1,7 +1,9 @@
 # Review packet — VP Eng session, 2026-07-25
 
 For: COO (Fable) and CTO (Sol 5.6). Written by Opus, VP Eng.
-Branch: merged to `main`. Worker deployed to Modal. Web NOT deployed.
+All work is on `main` and pushed. Worker and web were deployed during the
+session; the final selection-quality changes (§1.I) are pushed but NOT yet
+deployed — see §5.
 
 Read the commits for detail — each one states its evidence. This file is the
 map, the open decisions, and the things I got wrong.
@@ -131,6 +133,60 @@ re-renders whenever job progress changes. The `<video src>` changed every few
 seconds and the element reloaded. `ClipPlayer` now captures the URL once on
 play.
 
+
+### I. Selection quality — diagnosed from a founder-labelled batch
+
+Job `5b48b4e4` (VOD 2821788113) shipped 3 clips. Founder verdict: first two
+bad, third good. Those are the project's first labelled clips — 68 had shipped
+before with zero labels.
+
+    BAD   "Three pots landed on one spin"            21.3s
+    BAD   "There was a button - then a key appeared" 16.0s
+    GOOD  "Why the router started singing to him"    23.2s
+
+Founder's description of the failures: "random ahh clips with nothing in it
+just random gameplay, no good reaction no nothing. First one the main gameplay
+part was him just gambling in a video game which wasn't even in frame." And
+the criterion: **"It needs to have a story or instant funny reward led to by a
+hook."**
+
+The editor's own recorded reason for the slot-machine clip:
+
+> "Simple, tight slot-win arc with a clear build (one-more spin) and a single,
+> loud payoff in the final third. **Loudness confirms genuine hype (>=0.40).**
+> Clean start on the spin call and immediate payline reaction — ideal Short."
+
+Three defects, all now fixed:
+
+**1. The editor selected on volume.** PROJECT.md §4 records the founder's
+ruling — "have u considered the fact that game volume being high doesn't make
+it viral?" — and loudness was cut 3.0x -> 0.75x IN THE SCORER. The editor
+prompt still carried "Genuine screaming/meltdown is >= 0.40", written as a
+veto (below it, reject scream claims) and read by the model as evidence FOR
+posting. The rule is now explicitly one-directional: loudness can only reject,
+never justify, and citing the number as support is banned outright.
+
+**2. A verified arc is not a story.** The gate checks that trigger_quote and
+button_quote appear IN ORDER. "Oh yeah, one more" -> "Bang! Times three! Woo!"
+satisfies that completely and contains no story, no human reaction, and a
+payoff that lives on a screen the viewer cannot see. Added an OFF-SCREEN
+PAYOFF rejection: if understanding why the moment lands requires reading a
+game-state event (payline, loot roll, score, killfeed, rank, menu), reject it
+even when he reacts loudly and even when the arc verifies. The test given to
+the model: with the gameplay pane blank, does the audio alone still deliver a
+story or an instant laugh?
+
+**3. The archetype filter was disconnected from the pass that ships.**
+`RERANK_SCHEMA.archetype` was free text while `MOMENT_SCHEMA` constrained it to
+12 values, so the editor invented labels ("jumpscare / panic") that matched
+nothing. The rejections of physical_fail / destructive_rage / irl_reveal /
+clutch_needs_replay existed only in `score_with_llm` and could never fire on
+editor output. Enum now shared, and the editor path drops those archetypes.
+
+Note the pattern across both investigations: `trigger_role` was `game` here,
+and 0 of 17 candidates in the earlier manifest attributed the trigger to the
+streamer. §3.2 remains the largest open selection issue.
+
 ---
 
 ## 2. Correct a number in BUSINESS.md §3
@@ -208,48 +264,120 @@ net. It now fails clean rather than confusingly, but it does not catch.
 
 ---
 
-## 4. Things I got wrong during this session
+## 4. Every mistake I made, and the rule it implies
 
-Recorded because they cost time and might mislead a reviewer reading only the
-commits.
+Recorded in full at the founder's request. Several of these cost real time and
+two of them put wrong data in front of him.
 
-1. I claimed the founder's quality judgement was based on a broken pipeline.
-   Wrong — local runs had a working editor pass (claude CLI present) and the
-   correct persona for a CaseOh channel. The bugs were service-path only.
-2. I proposed the husk fallback as "switch to `m3u8:native`". Wrong —
-   `--download-sections` overrides `--downloader`. The fix works for the
-   reason given but via our own HTTP fetch.
-3. I assumed the QA gate would reject payoff-forward titles. It would not;
-   the leak check applies to the hook, not the title.
-4. I set `SCORING_TIMEOUT_S = 60` off a single sampled chunk. Production
-   needed more. Same class of error as the bug I was fixing.
-5. First secret-leak scan produced three false positives from shared `https://`
-   and `eyJhbGci` prefixes; re-scanned with distinctive mid-value slices.
+**1. Sized a timeout off a single sample — twice.**
+Set `SCORING_TIMEOUT_S = 60` from one chunk using 1,792 reasoning tokens;
+production averages ~3,216 and 3 of 38 chunks timed out. This is the same
+class of bug as the 60s editor ceiling I was fixing at the time.
+*Rule: size ceilings off the tail of a real distribution, never one sample.*
+
+**2. Told the founder his quality judgement was based on a broken pipeline.**
+Wrong. Local runs had a working editor pass (the `claude` CLI exists on his
+machine, so the fallback carried it) and the correct persona for a CaseOh
+channel. The bugs were service-path only. He corrected me and the evidence
+backed him.
+*Rule: check whether a defect reaches the environment being discussed before
+using it to discount someone's judgement.*
+
+**3. Proposed a fix based on a flag I had not verified.**
+Recommended falling back to `--downloader m3u8:native`. `--download-sections`
+forces the ffmpeg downloader and silently overrides `--downloader`. The final
+fix works for the reason I gave, but via our own HTTP fetch, not that flag.
+*Rule: verify the mechanism before proposing the remedy that depends on it.*
+
+**4. Asserted a gate would block something without reading it.**
+Claimed the QA gate would reject payoff-forward titles. It would not —
+`metadata_violations` checks the hook for payoff leakage, not the title.
+*Rule: read the function before describing what it enforces.*
+
+**5. Wrote founder feedback onto the wrong clips.**
+He said "first two are ass third is good" about job `5b48b4e4`; I labelled
+job `c293fa81`. Three wrong rows in `clips.feedback`, reverted once he caught
+it. On a table with 3 labels total, that is a large fraction of the ground
+truth corrupted.
+*Rule: confirm which artifact a verdict refers to before writing it to the
+database. Ambiguous antecedent is not a licence to guess.*
+
+**6. Diagnosed from correlation and ignored the mechanism.**
+Concluded that empty on-screen hooks caused the two bad clips — 12/12 prior
+clips had hook text, 2/3 in the new batch did not, and those two were the
+rejected ones. Clean correlation, wrong cause. The founder's actual objection
+was that the clips contained no story or reaction. I had even noted that the
+editor pass runs at full reasoning and emits the hook, which should have told
+me my `reasoning_effort` theory could not explain it.
+*Rule: when the mechanism does not support the correlation, the correlation is
+not the finding. Ask what the artifact actually contains.*
+
+**7. Ran a secret scan whose method produced false positives.**
+First client-bundle scan matched on the first 8 characters of each secret;
+`https://` and `eyJhbGci` are shared prefixes, so it reported three leaks that
+were not leaks. Re-scanned with distinctive mid-value slices.
+*Rule: a scan that cannot distinguish a secret from a public URL is not a
+security check.*
+
+**8. Assumed the deploy mechanism instead of checking it.**
+Told the founder to run `npx vercel --prod` while also implying a push would
+publish. Vercel here is CLI-deployed from the local working tree with no git
+integration, so pushing deploys nothing — and 13 commits sat unpushed while
+the live site ran 4-hour-old code.
+*Rule: verify how a project actually deploys before advising on it.*
+
+Two meta-lessons worth keeping:
+
+- **The bugs that mattered most were inversions and defaults, not missing
+  features.** `min` where `max` was meant; a timeout ceiling below the work;
+  a persona default never overridden; a schema field left free text. Each was
+  silently reverting a decision already made and written down in DECISIONS.md.
+- **Silent success is the recurring failure mode.** ffmpeg exiting 0 on an
+  empty file, a timed-out call still being billed, a chunk lost on every model,
+  an archetype filter matching nothing. Every one of these reported success or
+  said nothing at all. Prefer loud failure over a clean-looking log.
+
 
 ---
 
 ## 5. State and what is not done
 
-**Deployed:** Modal worker (all pipeline changes above).
+**Pushed:** everything. `main` is at parity with `origin/main`.
 
-**NOT deployed:** the web app. `npx vercel --prod` from repo root is needed for
-`/admin/costs` chunk-coverage display, the `is_admin` gate and the ClipPlayer
-fix.
+**Deployed during the session:** the Modal worker (husk fallback, media
+precheck, editor timeout, persona, pre-roll, ledger, substage timings) and the
+Vercel web app (`/admin/costs`, `is_admin` gate, ClipPlayer fix, chunk
+coverage).
 
-**NOT applied:** `infra/migrations/20260725_admin_flag.sql` (founder pastes it).
+**NOT deployed:** the §1.I selection changes — archetype enum, the loudness
+veto rewrite, and the off-screen-payoff rejection. They landed after the last
+deploy. A worker redeploy is needed and must wait for an idle queue:
 
-**NOT configured:** `OPENAI_ADMIN_KEY` — the Layer-2 org-spend panel on
-`/admin/costs` renders instructions until it exists.
+    ~/clipfarm/.venv/bin/modal deploy worker/modal_worker.py
 
-**Not verified visually:** the ClipPlayer fix compiles and the logic is a
-four-line state capture, but the dashboard is auth-gated and I could not
-confirm it in a browser. Worth 30 seconds after the web deploy.
+**NOT applied:** `infra/migrations/20260725_admin_flag.sql` (founder pastes it
+into the Supabase SQL editor). Both admin gates run on the legacy plan
+fallback until then, so a Stripe checkout can still strip access.
 
-**The measurement gap that blocks everything in §3:** 68 clips shipped, **0
-labelled**. The 👍/👎 exists in the dashboard and has never been used. Until
-there is ground truth, every prompt change is judged by impression — which is
-how the "absolute dogshit" round happened. Cached transcripts in `work/` make
-an offline replay harness cheap; it needs labels to score against.
+**NOT configured:** `OPENAI_ADMIN_KEY` — the org-wide spend panel on
+`/admin/costs` renders setup instructions until it exists.
+
+**Not verified visually:** the ClipPlayer fix compiles and is a four-line state
+capture, but the dashboard is auth-gated and I could not confirm it in a
+browser. Worth 30 seconds: open two clips while a job runs and see if playback
+holds.
+
+**Ground truth: 3 labelled clips, up from 0.** All three are from job
+`5b48b4e4` and are recorded in `clips.feedback`. That is enough to generate the
+hypotheses in §3.1 and §1.I but not to test them. Cached transcripts in
+`work/` make an offline replay harness cheap — it needs labels to score
+against, and ~10 more would make the title question decidable instead of
+arguable.
+
+**Unverified claim worth flagging:** §1.I's three fixes are reasoned from one
+labelled batch and are not yet validated by a run. The next batch on a fresh
+VOD is the test. If slot-machine-style clips still ship, the off-screen-payoff
+rule is not landing and the problem is deeper than prompt wording.
 
 ---
 

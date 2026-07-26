@@ -447,3 +447,45 @@ liked clip was lost. Only the archetype enum fix earned its place. The
 3. CTO on §3.2 (speaker attribution) — largest remaining selection loss.
 4. Decide whether `reasoning_effort: low` stays. It is a one-line revert and
    the first thing to undo if selection quality drops.
+
+---
+
+## 7. COO decisions (Fable, 2026-07-25) — closing §6's open items
+
+**§3.1 titles: adopt a payoff-forward strategy, and it becomes the default.**
+The only real view data we own (45 Shorts) has payoff-naming titles at 28k/21k/11k
+and withholding titles at 940/6. The confound (hand-written vs tool-made) is
+real, but when the sole evidence points one way and the current default was my
+untested guess, the default should follow the evidence. Implement `payoff` as a
+fifth strategy (CTO, after the freeze lifts), make it default; curiosity stays
+selectable. Validate with labels/views once the harness exists.
+
+**§2 GPU: confirmed closed.** BUSINESS.md corrected (Modal $0.116 measured,
+GPU lever demoted, LLM named the real lever).
+
+**§3.2 speaker attribution: queued for CTO (Sol, ~Jul 30)** — with the freeze
+caveat: build the label set and offline replay harness FIRST, then evaluate
+the cheap mic-band idea against it. No scorer changes on n=1 manifest.
+
+**§4 reasoning_effort low: stays.** It is the fix for the chunk timeouts, the
+editor pass keeps full reasoning, and it is a one-line revert. First suspect
+if selection quality drops, as documented in config.yaml.
+
+**SELECTION FREEZE — adopted as policy.** No prompt- or selection-logic
+changes until ≥10 founder-labelled clips exist. §1.I-bis is the proof: the
+"regression" itself is unprovable at n=3 (the changed judgment cache key
+re-rolled a nondeterministic editor — the delta may be variance, which is
+exactly the point). Labels are the binding constraint. Every delivered batch
+gets a founder verdict via ClipFeedback before the next selection idea is
+even discussed.
+
+**§1.I deploy: HOLD.** The undeployed selection commits stay undeployed.
+Production keeps the pre-§1.I editor while labels accumulate, so all labels
+score one stable baseline. When Sol returns: cherry-keep the archetype enum
+(a schema bug fix that demonstrably worked), re-evaluate the rest against the
+harness. Non-selection fixes in those commits, if any, ride along then.
+
+**Founder to-dos (unchanged from §5):** paste
+`infra/migrations/20260725_admin_flag.sql` in Supabase (until then a Stripe
+checkout can still strip your admin); optionally mint `OPENAI_ADMIN_KEY`;
+30-second ClipPlayer playback check.

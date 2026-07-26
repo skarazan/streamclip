@@ -51,11 +51,16 @@ added only after churn data exists.
 | Item | Cost | Note |
 |---|---|---|
 | Transcription (Groq whisper-large-v3-turbo) | ~$0.13 | measured, ~200x realtime |
-| LLM scoring + editor + judge | $0.00–0.05 | Gemini free tier now; budget gpt-5-mini rates for reliability at scale |
-| Modal compute (CPU, ~15–25 min) | ~$0.25–0.50 | 8 vCPU worker; the big lever (see §6) |
+| LLM scoring + editor + judge (gpt-5-mini, paid) | ~$0.20–0.30 | MEASURED 2026-07-25: scoring alone $0.27 at default reasoning (89% of output tokens were hidden reasoning); `reasoning_effort: low` cuts ~37% → ~$0.17 + editor pass |
+| Modal compute (CPU) | **$0.116** | MEASURED (VP Eng, real job records) — not the earlier $0.25–0.50 guess |
 | Segment download bandwidth | ~$0 | ingress free |
 | R2 storage + egress | ~$0.01 | egress is free on R2; clips ~100MB/batch |
-| **Total** | **~$0.45–0.70** | round to **$0.70 planning figure** |
+| **Total** | **~$0.45–0.55** | keep **$0.70 planning figure** as buffer |
+
+**LLM is the cost lever, not GPU.** §6's GPU-whisper ranking was based on a
+mislabeled timing bucket; real encode time is ~0.1s of a 22-min job (VP Eng
+review 2026-07-25 §2). The GPU question stays closed until `substage_s` shows
+encoding above half of wall time.
 
 Since v11 (2026-07-24) the worker **records stage timing and estimated compute
 cost on every completed root job** — replace this table with a rolling average

@@ -254,17 +254,39 @@ def baseline_chat(vod: Vod, lo: float, hi: float, k: int
 # ---------------------------------------------------------------- llm
 
 
-def llm_picks(vod: Vod, lo: float, hi: float, k: int, cfg: dict,
-              log=lambda *_: None) -> list[tuple[float, float]]:
-    """Run the REAL scorer on the slice with the crowd path hidden.
+CACHE = BENCH / "cache"
 
-    No crowd moments, no chat tags beyond what scoring normally gets — the
-    model is in exactly a Tier-C streamer's position.
+_MOMENT_FIELDS = ("start", "end", "score", "title", "hook", "reason", "energy",
+                  "archetype", "trigger_quote", "button_quote",
+                  "trigger_role", "button_role", "button_kind")
+
+
+def llm_moments(vod: Vod, lo: float, hi: float, cfg: dict,
+                log=lambda *_: None) -> list:
+    """The REAL scorer on the slice, crowd path hidden, CACHED to disk.
+
+    The model is in exactly a Tier-C streamer's position: no crowd moments,
+    no chat tags beyond what scoring normally gets.
+
+    Caching is what makes a campaign affordable. The key includes the prompt
+    fingerprint and model, so a prompt edit invalidates it automatically and a
+    stale answer can never be scored as if it were fresh. Everything
+    downstream of scoring — fusion weights, re-ranking, gap rules — then costs
+    nothing to test, which is the difference between four experiments a day
+    and forty.
     """
     llm = cfg["llm"]
     words = [w for w in vod.words if lo <= w.start < hi]
     if not words:
         return []
+    key = (f"{vod.vid}_{lo:.0f}-{hi:.0f}_{detect.prompt_fingerprint()}"
+           f"_{llm['model']}_{llm.get('reasoning_effort') or 'default'}.json")
+    path = CACHE / key
+    if path.exists():
+        try:
+            return [detect.Moment(**d) for d in json.loads(path.read_text())]
+        except Exception:
+            pass  # unreadable cache is not a reason to fail a sweep
     moments = detect.score_with_llm(
         words, llm["model"], llm["chunk_minutes"], log=log,
         base_url=llm.get("base_url"), api_key_env=llm.get("api_key_env"),
@@ -273,8 +295,136 @@ def llm_picks(vod: Vod, lo: float, hi: float, k: int, cfg: dict,
         profile=vod.profile, persona="generic", chat=None,
         title_strategy=cfg.get("style", {}).get("title_strategy", "curiosity"),
         reasoning_effort=llm.get("reasoning_effort"))
-    moments.sort(key=lambda m: m.score, reverse=True)
+    CACHE.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(
+        [{f: getattr(m, f) for f in _MOMENT_FIELDS} for m in moments]))
+    tmp.replace(path)          # atomic: an interrupted sweep leaves no half file
+    return moments
+
+
+def llm_picks(vod: Vod, lo: float, hi: float, k: int, cfg: dict,
+              log=lambda *_: None) -> list[tuple[float, float]]:
+    moments = sorted(llm_moments(vod, lo, hi, cfg, log),
+                     key=lambda m: m.score, reverse=True)
     return [(m.start, m.end) for m in moments[:k]]
+
+
+# ------------------------------------------------------- fusion (free to run)
+
+
+def _loudness_at(vod: Vod, start: float, end: float) -> float:
+    """Peak loudness inside a window, 0..1. The scorer already sees [SCREAM]
+    tags, but only as text — this is the raw number it cannot argue with."""
+    if vod.profile is None or not len(vod.profile):
+        return 0.0
+    duration = vod.words[-1].end if vod.words else 0.0
+    if duration <= 0:
+        return 0.0
+    hz = len(vod.profile) / duration
+    a, b = int(start * hz), int(min(end, duration) * hz)
+    seg = vod.profile[max(0, a):max(a + 1, b)]
+    return float(seg.max()) if len(seg) else 0.0
+
+
+def _chat_at(vod: Vod, start: float, end: float) -> float:
+    """Max chat density in a window, normalised against this VOD's own
+    baseline — a 5-viewer channel spikes on the same relative scale a 50k one
+    does, which is the whole reason chat generalises to Tier C."""
+    series = [(float(t), float(v)) for t, v in (vod.chat_density or [])
+              if isinstance(t, (int, float))]
+    if not series:
+        return 0.0
+    vals = sorted(v for _, v in series)
+    med = vals[len(vals) // 2] or 1.0
+    inside = [v for t, v in series if start - 30 <= t <= end + 30]
+    return (max(inside) / med) if inside else 0.0
+
+
+def _spread(picks: list, k: int, min_gap: float) -> list:
+    """Take the best k that are at least min_gap apart. Ranked input."""
+    out = []
+    for m in picks:
+        if all(abs(m.start - o.start) >= min_gap for o in out):
+            out.append(m)
+        if len(out) == k:
+            break
+    return out
+
+
+def fusion_picks(vod: Vod, lo: float, hi: float, k: int, cfg: dict,
+                 w_loud: float = 0.0, w_chat: float = 0.0,
+                 min_gap: float = 90.0, log=lambda *_: None
+                 ) -> list[tuple[float, float]]:
+    """LLM candidates re-ranked with the signals the model can't hear.
+
+    The scorer's RECALL of crowd moments is what the harness measures, and it
+    was losing to a loudness argmax. Two readings are possible: the model
+    finds the wrong moments, or it finds reasonable moments and ranks them
+    badly. Fusion tests the second — same candidates, different order.
+    """
+    moments = llm_moments(vod, lo, hi, cfg, log)
+    if not moments:
+        return []
+    for m in moments:
+        m.combined = (m.score
+                      + w_loud * 10.0 * _loudness_at(vod, m.start, m.end)
+                      + w_chat * min(_chat_at(vod, m.start, m.end), 5.0))
+    ranked = sorted(moments, key=lambda m: m.combined, reverse=True)
+    return [(m.start, m.end) for m in _spread(ranked, k, min_gap)]
+
+
+# ------------------------------------------------- generate-then-judge (v2)
+
+
+def judged_candidates(vod: Vod, lo: float, hi: float, cfg: dict,
+                      log=lambda *_: None) -> list[dict]:
+    """Cheap high-recall pool + LLM judgement, cached like llm_moments.
+
+    Cached on a hash of the judge SYSTEM PROMPT, so editing the prompt
+    re-runs and editing `rank_judged` (pure code) does not.
+    """
+    import hashlib
+
+    from clipfarm import generate
+
+    llm = cfg["llm"]
+    words = [w for w in vod.words if lo <= w.start < hi]
+    if not words:
+        return []
+    jh = hashlib.sha256(
+        (generate.JUDGE_SYS + json.dumps(generate.JUDGE_SCHEMA)).encode()
+    ).hexdigest()[:12]
+    path = CACHE / (f"judge_{vod.vid}_{lo:.0f}-{hi:.0f}_{jh}"
+                    f"_{llm['model']}.json")
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            pass
+    cands = generate.candidates(vod.words, vod.profile,
+                               {"density": vod.chat_density}, lo, hi)
+    if not cands:
+        return []
+    generate.judge(cands, vod.words, llm["model"],
+                   base_url=llm.get("base_url"),
+                   api_key_env=llm.get("api_key_env"),
+                   fallback_models=llm.get("fallback_models"),
+                   streamer=cfg.get("streamer_name", "the streamer"),
+                   reasoning_effort=llm.get("reasoning_effort"), log=log)
+    CACHE.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(cands))
+    tmp.replace(path)
+    return cands
+
+
+def judge_picks(vod: Vod, lo: float, hi: float, k: int, cfg: dict,
+                log=lambda *_: None, **rank_kw) -> list[tuple[float, float]]:
+    from clipfarm import generate
+    cands = judged_candidates(vod, lo, hi, cfg, log)
+    picks = generate.rank_judged(cands, k, **rank_kw)
+    return [(c["start"], c["end"]) for c in picks]
 
 
 # ---------------------------------------------------------------- run
@@ -317,7 +467,16 @@ def main() -> int:
 
     usage.reset()
     started = time.time()
-    rows = {"llm": [], "loud": [], "chat": [], "rand": []}
+    # Fusion variants share the LLM cache with "llm", so adding one to this
+    # dict costs nothing after the first sweep.
+    variants = {
+        "fuse_loud": dict(w_loud=1.0, w_chat=0.0),
+        "fuse_chat": dict(w_loud=0.0, w_chat=1.0),
+        "fuse_both": dict(w_loud=1.0, w_chat=0.5),
+        "fuse_loud2": dict(w_loud=2.0, w_chat=0.0),
+    }
+    rows = {k: [] for k in
+            ["llm", *variants, "judge", "loud", "chat", "rand"]}
     aborted = False
 
     for vid in vids:
@@ -351,15 +510,26 @@ def main() -> int:
                 r = score_picks(picks, inside, args.k)
                 rows["llm"].append(r)
                 line += f"  | LLM {fmt(r)}"
+            for name, kw in variants.items():
+                fp = fusion_picks(vod, lo, hi, args.k, cfg, **kw)
+                if fp:
+                    rows[name].append(score_picks(fp, inside, args.k))
+            jp = judge_picks(vod, lo, hi, args.k, cfg)
+            if jp:
+                r = score_picks(jp, inside, args.k)
+                rows["judge"].append(r)
+                line += f"  | JUDGE {fmt(r)}"
             line += f"  ${spend_usd(usage.snapshot()):.3f}"
         print(line)
 
     spent = spend_usd(usage.snapshot())
     print(f"\n{args.set.upper()} SET  ({len(rows['llm']) or len(rows['loud'])} VODs scored)")
-    order = ["llm", "loud", "chat", "rand"] if not args.baselines_only \
-        else ["loud", "chat", "rand"]
+    order = ([k for k in rows] if not args.baselines_only
+             else ["loud", "chat", "rand"])
     names = {"llm": "LLM (ours)", "loud": "baseline loudness",
-             "chat": "baseline chat", "rand": "baseline random"}
+             "chat": "baseline chat", "rand": "baseline random",
+             "fuse_loud": "fusion +loud", "fuse_chat": "fusion +chat",
+             "fuse_both": "fusion +both", "fuse_loud2": "fusion +loud x2", "judge": "GENERATE+JUDGE (v2)"}
     for key in order:
         if not rows[key]:
             continue

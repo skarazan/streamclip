@@ -456,3 +456,67 @@ Standing caution: that day's selection work went 1 for 4, and the two prose
 rules regressed a batch — keeping a clip the founder rejected and dropping the
 one he liked. With 3 labelled clips out of 71 shipped, no selection change can
 be distinguished from variance. Get labels before engineering further.
+
+## 2026-08-03 — Selection is two jobs, and one model was doing both badly
+
+Harness evidence, dev set of 7 VODs, crowd top-5 as the answer key:
+
+    score_with_llm top-5 picks           recall 0.057
+    its ENTIRE candidate pool (ceiling)  recall 0.286
+    loudness peaks k=40 gap=30 (ceiling) recall 0.886
+    loudness+chat union    (ceiling)     recall 0.829
+    plain loudness top-5                 recall 0.229
+
+Read the second line against the third. The scorer emits ~15 moments an hour
+and they are usually real — measured against crowd clusters its picks land
+within seconds of *a* moment humans clipped — but it systematically misses the
+biggest ones, so a PERFECT re-ranking of its output still caps at 0.286. Every
+score it returns is 7 or 8, which is why nothing sorts.
+
+Decision: split generation from judgement. Cheap signals answer "where did
+something happen" at ~0.89 coverage for free; the model answers "which of
+these is worth posting", which is what it is good at and what the founder's
+verdicts are about.
+
+- Benefit: the ceiling rises from 0.286 to ~0.89 before any model runs.
+- Cost: a judging pass over ~40-70 windows per hour of VOD.
+- Contained: candidates the judge does not return are ranked last, never
+  dropped, so a bad batch degrades the order instead of losing the VOD.
+
+Deterministic ranking of the cheap pool was measured and plateaus at ~0.257
+(loudness, chat-spike, rank fusion, products — none separated). That plateau
+is why a judging pass exists at all: the pool contains the right moments and
+only judgement lifts them.
+
+### The judge reports facts; code decides
+
+Same rule as the archetype enum that worked on 2026-07-25, and for the same
+reason the three prose rules failed that day: the judge fills a schema
+(`has_story`, `payoff_kind`, `needs_visuals`, `streamer_speaks`, `funny`) and
+`rank_judged` makes the decision. A schema field cannot be rationalised
+around the way "loudness may only reject" was.
+
+### Crowd taste and founder taste disagree, and both are kept
+
+Among candidates matching the crowd's top-5, `needs_visuals` was 36% against
+17% elsewhere: the crowd LIKES on-screen moments. All six founder labels run
+the other way — every rejection was a payoff on the game screen (slot spin,
+wheel, loot roll), both keepers were the streamer telling a story.
+
+So the harness is treated as measuring "did we find the moments that pop" and
+the founder's labels remain the authority on which of those may ship. The
+game-event cap stays a founder-taste rule in code; it is deliberately NOT
+tuned away because crowd recall dislikes it.
+
+### Silent success, again
+
+The first judge run reported 59% of candidates judged. Not truncation —
+strict json_schema responses arrive wrapped in the schema NAME
+(`{"judgements": {"items": [...]}}`) while the prompt-enforced JSON fallback
+returns them bare. Reading only the bare shape discarded every judgement on
+~40% of batches and reported success; those candidates just ranked last.
+Now unwrapped defensively and logged loudly when nothing maps.
+
+That is the fourth defect of this exact class in two weeks (ffmpeg exiting 0
+on an empty file, a timed-out call still billed, a chunk lost on every model,
+now this). Standing rule: a stage that can produce nothing must say so.

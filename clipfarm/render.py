@@ -8,6 +8,12 @@ from .transcribe import Word
 
 W, H = 1080, 1920
 
+# Summed column motion energy below this means "nothing is happening" — keep
+# the caller's default framing. Frozen scene measured 0.03; a spinning slot
+# reel 118. The gap is three orders of magnitude, so the exact value is not
+# delicate.
+MIN_ACTION_ENERGY = 2.0
+
 ASS_HEADER = """[Script Info]
 ScriptType: v4.00+
 PlayResX: {w}
@@ -144,12 +150,84 @@ def _even(v: float) -> int:
     return max(2, int(v) // 2 * 2)
 
 
+def action_center_x(segment: Path, samples: int = 14,
+                    exclude: tuple[float, float] | None = None) -> float | None:
+    """Where the moving thing is, as a fraction of frame width.
+
+    The gameplay pane keeps a portrait slice roughly half the frame wide, so a
+    centred crop throws away both edges. Slot reels, loot rolls, killfeeds and
+    scoreboards live at those edges, which is how a clip ends up being *about*
+    something the viewer never sees.
+
+    Frame-difference energy per column finds it without a model: whatever is
+    animating during the payoff is the subject. `exclude` masks the cam
+    overlay's x-range so a talking head doesn't win every time.
+
+    Returns None when nothing stands out, so the caller keeps its own default
+    rather than acting on noise.
+    """
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        return None
+    cap = cv2.VideoCapture(str(segment))
+    if not cap.isOpened():
+        return None
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+    prev, energy = None, None
+    for i in range(samples):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(n * (i + 0.5) / samples))
+        ok, frame = cap.read()
+        if not ok:
+            continue
+        g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        if prev is not None and prev.shape == g.shape:
+            col = np.abs(g - prev).mean(axis=0)
+            energy = col if energy is None else energy + col
+        prev = g
+    cap.release()
+    if energy is None or not len(energy):
+        return None
+    width = len(energy)
+    if exclude:
+        a, b = int(exclude[0] * width), int(exclude[1] * width)
+        energy[max(0, a):max(0, b)] = 0.0
+    # smooth over ~8% of the width: single-column spikes are compression
+    # noise, a real subject animates across a region
+    win = max(3, int(width * 0.08))
+    kern = np.ones(win) / win
+    smooth = np.convolve(energy, kern, mode="same")
+    # Absolute magnitude decides, not a ratio. Measured: a frozen scene peaks
+    # at 0.03 while a spinning slot reel peaks at 118 — but the FROZEN clip
+    # has the higher peak-to-median ratio (4.4 vs 2.7), because with no motion
+    # the field is pure compression noise. A relative-only guard therefore
+    # fires exactly backwards and crops static scenes at random.
+    peak = float(smooth.max())
+    if peak < MIN_ACTION_ENERGY:
+        return None
+    return float(int(smooth.argmax())) / width
+
+
 def _split_filter(segment: Path, cam: tuple[float, float, float, float],
-                  top_frac: float, source: str = "0:v") -> str:
-    """Facecam on top, gameplay below. cam = (x,y,w,h) fractions of source."""
+                  top_frac: float, source: str = "0:v",
+                  action_x: float | None = None) -> str:
+    """Facecam on top, gameplay below. cam = (x,y,w,h) fractions of source.
+
+    `action_x` (0..1) centres the gameplay slice on whatever is moving. The
+    slice is only about half the frame wide, so a centred crop drops both
+    edges — where slot reels, loot rolls, killfeeds and scoreboards live. That
+    is the founder's "the gambling wasn't even in frame": the moment was fine,
+    the framing ate the payoff.
+
+    Letterboxing the whole 16:9 frame into the pane was tried instead and
+    rejected on sight — at 9:16 the game becomes a small strip between blurred
+    bars. Cropping to the action keeps it full-bleed.
+    """
     sw, sh = _dims(segment)
     top_h = _even(H * top_frac)
     bot_h = H - top_h
+
 
     # The cam is cropped EXACTLY, then fitted into the pane against a blurred
     # blow-up of itself. Reshaping the crop to the pane's aspect was the
@@ -163,12 +241,18 @@ def _split_filter(segment: Path, cam: tuple[float, float, float, float],
     cy = max(0, min(cy, sh - ch))
     fit_h = (cw / ch) < (W / top_h)   # tall cam -> fit the pane's height
 
-    # gameplay: tallest centered crop matching the bottom pane's aspect
+    # gameplay: tallest crop matching the bottom pane's aspect, centred on the
+    # action when we know where it is. This slice is only about half the frame
+    # wide, so "centre" silently discards both edges — where slot reels, loot
+    # rolls and killfeeds live.
     g_ar = W / bot_h
     gw, gh = sh * g_ar, sh
     if gw > sw:
         gw, gh = sw, sw / g_ar
-    gx, gy = (sw - gw) / 2, (sh - gh) / 2
+    gy = (sh - gh) / 2
+    gx = ((action_x * sw - gw / 2) if action_x is not None
+          else (sw - gw) / 2)
+    gx = max(0.0, min(gx, sw - gw))
 
     # the source's own cam overlay already fills the top pane — keep the
     # gameplay crop clear of it so the streamer isn't shown twice. Sliding
@@ -181,12 +265,19 @@ def _split_filter(segment: Path, cam: tuple[float, float, float, float],
     cam_x1, cam_x2 = max(0.0, fx * sw - pad), min(sw, (fx + fw) * sw + pad)
     if gx < cam_x2 and gx + gw > cam_x1:
         left, right = cam_x1, sw - cam_x2
-        if left >= right:
+        # prefer the side the action is on, not merely the wider side
+        want_left = (action_x is not None and action_x * sw < cam_x1
+                     and left >= gw)
+        if want_left or (left >= right and not (action_x is not None
+                                                and action_x * sw > cam_x2
+                                                and right >= gw)):
             span_x, span_w = 0.0, left
         else:
             span_x, span_w = cam_x2, right
         if span_w >= gw:
-            gx = min(max(span_x, span_x + (span_w - gw) / 2), sw - gw)
+            centre = (action_x * sw - gw / 2) if action_x is not None \
+                else span_x + (span_w - gw) / 2
+            gx = min(max(span_x, centre), min(span_x + span_w - gw, sw - gw))
         else:
             gw, gh = span_w, min(span_w / g_ar, sh)
             gw = gh * g_ar
@@ -431,14 +522,23 @@ def render_short(segment: Path, ass_file: Path, dest: Path, crop: str = "center"
                  cam: tuple[float, float, float, float] | None = None,
                  top_frac: float = 0.42, brand: str = "",
                  opening_effect: str = "clean",
-                 keep: list[tuple[float, float]] | None = None) -> Path:
+                 keep: list[tuple[float, float]] | None = None,
+                 action_x: float | None = None) -> Path:
     """Render a final 9:16 short.
 
     ``keep`` contains source-relative intervals. When supplied, trimming,
     concatenation, layout, captions and encoding happen in one ffmpeg graph.
     This avoids the old cut_silences intermediate and its second H.264 encode.
     """
-    if crop == "left":
+    if action_x is not None:
+        # full-frame path is a fixed slice too, and cuts the same payoffs the
+        # split path did — centre it on the action when we located it.
+        # Resolved numerically: ffmpeg parses a comma inside clip() as a
+        # filter separator, so an expression here silently breaks the graph.
+        _sw, _sh = _dims(segment)
+        _cw = _sh * 9 / 16
+        x = str(int(max(0.0, min(action_x * _sw - _cw / 2, _sw - _cw))))
+    elif crop == "left":
         x = "0"
     elif crop == "right":
         x = "iw-ih*9/16"
@@ -449,7 +549,8 @@ def render_short(segment: Path, ass_file: Path, dest: Path, crop: str = "center"
     trimmed = bool(keep)
     source_label = "cutv" if trimmed else "0:v"
     if cam:
-        vf = _split_filter(segment, cam, top_frac, source=source_label)
+        vf = _split_filter(segment, cam, top_frac, source=source_label,
+                           action_x=action_x)
         vf += f",setsar=1,ass={ass_path}"
     else:
         vf = (f"[{source_label}]crop=ih*9/16:ih:{x}:0,"

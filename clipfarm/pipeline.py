@@ -786,6 +786,21 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
                                vod_work / f"seg_c{cand_i + 1:02d}.ass",
                                hook=m.hook, hook_color_idx=i - 1,
                                hook_pos=top_frac if cam else None)
+        # Centre the 9:16 slice on whatever is actually moving. A fixed centre
+        # crop keeps ~half the frame width, so slot reels, loot rolls and
+        # killfeeds at the edges were being cut out of the very clips that
+        # were about them ("the gambling wasn't even in frame"). Returns None
+        # on a static or evenly-busy scene, which keeps the old framing.
+        action_x = None
+        if style.get("action_crop", True):
+            try:
+                action_x = render.action_center_x(
+                    seg, exclude=((cam[0], cam[0] + cam[2]) if cam else None))
+            except Exception as e:      # framing is never worth a failed job
+                print(f"  action-crop probe failed ({type(e).__name__}) "
+                      f"-> default framing")
+            if action_x is not None:
+                print(f"  action-centred crop at {action_x:.0%} of frame width")
         final = render.render_short(seg, ass, out_dir / f"{name}.mp4",
                                     style.get("crop", "center"),
                                     cam=cam, top_frac=top_frac,
@@ -795,7 +810,8 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
                                     keep=(
                                         [(s - source_start, e - source_start)
                                          for s, e in ivals]
-                                        if trimmed else None))
+                                        if trimmed else None),
+                                    action_x=action_x)
         media_qa = quality.inspect_media(
             final, expected_duration=sum(e - s for s, e in ivals))
         attempt["media_qa"] = media_qa.to_dict()

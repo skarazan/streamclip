@@ -242,15 +242,17 @@ def judge(cands: list[dict], words: list[Word], model: str,
 
 
 def rank_judged(cands: list[dict], k: int, min_gap: float = 90.0,
-                allow_game_frac: float = 0.5) -> list[dict]:
+                allow_game_frac: float = 1.0) -> list[dict]:
     """Decide in code what the schema reported.
 
-    Every founder rejection on record (6 labels, 2026-07-25/26) was a moment
-    whose payoff lived on the game screen — a slot spin, a wheel, a loot
-    roll. Both keepers were the streamer telling a story. So a game_event
-    payoff is not banned (a jumpscare is legitimately game-triggered and
-    DECISIONS.md protects it) but it cannot take more than half a batch while
-    a story candidate is still on the bench.
+    A game_event payoff is NOT a defect. The founder's rejected clips read as
+    "the gambling wasn't even in frame" — that is the 9:16 crop cutting the
+    slot/wheel/loot UI out of the gameplay pane, not the moment being weak.
+    The crowd agrees: among candidates matching the crowd's top-5, 36% were
+    judged `needs_visuals` against 17% elsewhere, so on-screen payoffs are
+    what people clip. Those moments are handled in RENDER (a clip whose
+    payoff is visual is framed to keep the whole game frame) rather than
+    demoted here. `allow_game_frac` stays as a lever but defaults to open.
     """
     def base(c: dict) -> float:
         if not c.get("judged"):
@@ -260,8 +262,6 @@ def rank_judged(cands: list[dict], k: int, min_gap: float = 90.0,
             s += 3.0
         if c.get("streamer_speaks"):
             s += 1.5
-        if c.get("needs_visuals"):
-            s -= 3.0
         if c.get("payoff_kind") == "none":
             s -= 4.0
         return s

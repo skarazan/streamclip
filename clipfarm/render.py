@@ -299,11 +299,18 @@ def _split_filter(segment: Path, cam: tuple[float, float, float, float],
 
 
 def render_landscape(segment: Path, ass_file: Path, dest: Path,
-                     badge: str | None = None) -> Path:
+                     badge: str | None = None,
+                     keep: list[tuple[float, float]] | None = None) -> Path:
     """16:9 1080p re-encode with burned captions — compilation building block.
     The source stream frame is already landscape; no cropping, full context.
     Uniform codec/fps/audio params so segments concat losslessly. `badge`
-    (e.g. "#5") burns a countdown tag top-left for retention."""
+    (e.g. "#5") burns a countdown tag top-left for retention.
+
+    ``keep`` holds source-relative intervals to retain, exactly as
+    ``render_short`` uses them. Compilations were assembled from fixed-length
+    windows with every pause left in, so a 14-minute cut carried minutes of
+    dead air and read as slow. Same jump-cut, same single encode.
+    """
     ass_path = str(ass_file).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
     vf = (f"scale=1920:1080:force_original_aspect_ratio=decrease,"
           f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,ass={ass_path}")
@@ -311,14 +318,36 @@ def render_landscape(segment: Path, ass_file: Path, dest: Path,
         txt = badge.replace(":", "\\:").replace("'", "’")
         vf += (f",drawtext=text='{txt}':fontcolor=white:fontsize=90:"
                f"borderw=6:bordercolor=black@0.9:x=48:y=40")
+    trimmed = bool(keep) and len(keep) >= 1
     cmd = [
         ffmpeg_path(), "-y", "-v", "error",
         "-fflags", "+genpts", "-i", str(segment),
-        "-vf", vf,
+    ]
+    if trimmed:
+        parts, pads = [], []
+        for i, (s, e) in enumerate(keep):
+            parts.append(
+                f"[0:v]trim=start={s:.3f}:end={e:.3f},"
+                f"setpts=PTS-STARTPTS[v{i}];"
+                f"[0:a]atrim=start={s:.3f}:end={e:.3f},"
+                f"asetpts=PTS-STARTPTS,"
+                f"aresample=async=1:first_pts=0[a{i}];")
+            pads.append(f"[v{i}][a{i}]")
+        graph = ("".join(parts) + "".join(pads)
+                 + f"concat=n={len(keep)}:v=1:a=1[cutv][cuta];"
+                 + f"[cutv]{vf}[outv];"
+                 + "[cuta]aresample=async=1:first_pts=0[outa]")
+        cmd += ["-filter_complex", graph, "-map", "[outv]", "-map", "[outa]"]
+    else:
+        cmd += ["-vf", vf]
+        # -af cannot coexist with -filter_complex + -map; on the trimmed path
+        # the same resampling already happens inside the graph
+        cmd += ["-af", "aresample=async=1:first_pts=0"]
+    cmd += [
         # yt-dlp keyframe-cut segments can start audio and video at different
         # PTS; force CFR video + resampled audio pinned to 0 so every segment
         # is self-synced and concatenation can't accumulate A/V drift
-        "-vsync", "cfr", "-af", "aresample=async=1:first_pts=0",
+        "-vsync", "cfr",
         "-r", "30", "-video_track_timescale", "30000",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
         "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2",

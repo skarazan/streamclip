@@ -30,6 +30,10 @@ from .config import PROJECT_ROOT, ffmpeg_path, load_config
 W, H = 1920, 1080
 CLIP_LEN = 60.0   # long-form: ~1 min of context per moment
 MIN_MIN, MAX_MIN = 11, 18  # required finished length window
+# Fraction of a raw window that survives the silence jump-cut. Measured on the
+# first cut-enabled comp; used only to size the clip count so the finished
+# video still lands in the length window.
+EXPECTED_KEEP = 0.78
 
 
 def _sb(path: str, **kw) -> list:
@@ -138,6 +142,22 @@ def _ts(sec: float) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+def _raw_profile(vod_url: str):
+    """Pre-speech-gate loudness for this VOD, if the cache has it.
+
+    Needed so the jump-cut can tell a quiet NPC line from real silence; the
+    speech-gated array cannot (DECISIONS.md 2026-07-23). Missing cache is not
+    an error — keep_intervals falls back to duration alone.
+    """
+    import numpy as np
+    vid = vod_url.rstrip("/").rsplit("/", 1)[-1]
+    p = PROJECT_ROOT / "work" / vid / "loudness_raw.npy"
+    try:
+        return np.load(p) if p.exists() else None
+    except Exception:
+        return None
+
+
 def compile_video(channel: str, title: str, streams: int = 4,
                   target_min: float = 14.0, clip_len: float = CLIP_LEN,
                   quality: str = "best[height<=1080]",
@@ -147,7 +167,10 @@ def compile_video(channel: str, title: str, streams: int = 4,
     if brand is None:
         brand = load_config()["output"].get("brand", "")
     # count is set by the required 11-18 min finished length at clip_len each
-    count = round(target_min * 60 / clip_len)
+    # Clips are jump-cut, so a 60s window ships shorter than 60s. Ask for
+    # enough moments that the FINISHED video still lands in the 11-18 min
+    # window; without this the trim quietly pushed a 14-min target to ~10.
+    count = round(target_min * 60 / (clip_len * EXPECTED_KEEP))
     count = max(math.ceil(MIN_MIN * 60 / clip_len),
                 min(count, math.floor(MAX_MIN * 60 / clip_len)))
     clips = moments_from_vods(channel, streams, count, clip_len)
@@ -185,23 +208,39 @@ def compile_video(channel: str, title: str, streams: int = 4,
         words = transcribe.transcribe_clips_groq(
             [(seg, cs)],
             context="Twitch gaming stream. Loud casual speech, screaming, slang.")[0]
-        ass = render.build_ass(words, cs, ce, style,
+        # Same jump-cut the Shorts get. A compilation built from fixed windows
+        # keeps every pause, and fifteen of those is minutes of dead air — the
+        # "not tight" complaint. keep_intervals is duration-primary and
+        # guarded by raw loudness, so quiet game/NPC sound survives while
+        # genuine silence goes (DECISIONS.md 2026-07-23).
+        keep, seg_len = None, ce - cs
+        ivals = detect.keep_intervals(words, cs, ce,
+                                      profile=_raw_profile(c["vod_url"]))
+        kept = sum(e - s for s, e in ivals)
+        if ivals and kept > 5.0 and (ce - cs) - kept > 1.5:
+            keep = [(s - cs, e - cs) for s, e in ivals]
+            words = detect.remap_words(words, ivals)
+            seg_len = kept
+            print(f"      jump-cut {(ce - cs) - kept:4.1f}s dead air "
+                  f"-> {seg_len:.0f}s")
+        ass = render.build_ass(words, 0.0 if keep else cs,
+                               seg_len if keep else ce, style,
                                work / f"seg_{i:02d}.ass", res=(W, H))
         final = work / f"final_{i:02d}.mp4"
-        render.render_landscape(seg, ass, final)
+        render.render_landscape(seg, ass, final, keep=keep)
         # branded inter-clip card — but NEVER before the opener: retention
         # data shows the first seconds decide everything, so the video must
         # open mid-banger, not on 0.9s of black card
         if i == 0 or not inter_clip_cards:
             rendered.append(final)
             chapters.append((cursor, c["title"]))
-            cursor += clip_len
+            cursor += seg_len
         else:
             card = render.title_card(c["title"], work / f"card_{i:02d}.mp4",
                                      dur=card_dur, brand=brand)
             rendered += [card, final]
             chapters.append((cursor, c["title"]))  # chapter lands on the card
-            cursor += card_dur + clip_len
+            cursor += card_dur + seg_len
         seg.unlink(missing_ok=True)
 
     # concat with a full re-encode + audio resample: stream-copy concat drifts

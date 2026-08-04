@@ -637,3 +637,30 @@ a 60-minute slice" is a needle-in-haystack target. On a Tier-C VOD the
 question is only "is this moment worth posting at all", which is a much easier
 bar and where sparse-but-specific signals like self-laugh may earn their place.
 That is untested, and it is the only test that matters.
+
+### 2026-08-03 — position consensus must never overrule an identity verdict
+
+A reaction-stream clip shipped with a "facecam" pane containing no face: it
+was a crop of the VIDEO CaseOh was reacting to, complete with that video's
+own watermark, and the bottom pane showed the same video again. VOD
+2835837716, job 744c0357, clip 02.
+
+Cause was one branch in the facecam block:
+
+    elif not matched and pos_box:
+        cams = [pos_box] * len(segs)
+
+Identity matching had run and found the streamer in ZERO segments, which on
+that stream is the correct answer — his cam is small or absent while a video
+plays fullscreen. This branch treated "nothing matched" as "detection failed"
+and applied the VOD-wide position-consensus box to every clip. On a reaction
+stream that box is whatever recurred at a fixed screen position, which is the
+video player.
+
+The comment three lines above already stated the right policy — an identity
+check that finds no streamer means he is off-cam, so render full frame — but
+it only governed the branch where SOME segments matched.
+
+Rule: position consensus is a fallback for having no recognizer and no
+identity. It is not a second opinion that may overrule one. When identity
+matching runs and returns nothing, full frame is the answer.

@@ -552,8 +552,23 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
                 cams = [c or fill for c in cams]
                 print(f"Facecam: {len(matched)}/{len(segs)} segments matched "
                       "-> batch-fill for the rest")
-        elif not matched and pos_box:
+        elif not matched and pos_box and identity is None:
+            # Position consensus is a fallback for "we have no recognizer and
+            # no identity", NOT a second opinion that may overrule one.
+            #
+            # Previously this ran whenever nothing matched, including when
+            # identity matching had run and found the streamer in ZERO
+            # segments — which is the correct answer on a reaction stream
+            # where his cam is tiny, hidden, or off. The consensus box then
+            # went onto every clip and the "facecam" pane rendered a crop of
+            # the VIDEO he was reacting to, watermark and all, with the same
+            # video repeated underneath. Observed on VOD 2835837716, job
+            # 744c0357, clip 02.
             cams = [pos_box] * len(segs)
+        elif not matched and identity is not None:
+            print("Facecam: identity found in 0/%d segments -> full frame "
+                  "(streamer off-cam; a forced pane would show content that "
+                  "is not him)" % len(segs))
         for i, c in enumerate(cams, 1):
             print(f"[{i}/{len(segs)}] Facecam "
                   f"{'matched -> split layout' if c else 'none -> full frame'}")

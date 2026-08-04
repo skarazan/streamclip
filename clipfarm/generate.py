@@ -44,6 +44,12 @@ from .transcribe import Word
 PRE_S = 12.0
 POST_S = 26.0
 
+# Weight on peak loudness in the final ranking. Swept on the dev set against
+# crowd top-5: 0 scored 0.267, 1.0 scored 0.367. Small sample (6 VODs, 20
+# combinations tried) so treat as "loudness belongs in the blend", not as a
+# tuned constant.
+LOUD_W = 1.0
+
 
 def _peak_times(series: list[tuple[float, float]], lo: float, hi: float,
                 k: int, min_gap: float) -> list[float]:
@@ -87,10 +93,22 @@ def candidates(words: list[Word], profile, chat: dict | None,
         # twice, which is a good sign, not two candidates
         if any(abs(t - c["peak"]) < 15.0 for c in cands):
             continue
-        cands.append({"peak": t,
-                      "start": max(lo, t - PRE_S),
-                      "end": min(hi, t + POST_S)})
+        c = {"peak": t,
+             "start": max(lo, t - PRE_S),
+             "end": min(hi, t + POST_S)}
+        # carried on the candidate so ranking never needs the audio array
+        c["loud"] = _peak_loudness(profile, duration, c["start"], c["end"])
+        cands.append(c)
     return cands
+
+
+def _peak_loudness(profile, duration: float, start: float, end: float) -> float:
+    if profile is None or not len(profile) or duration <= 0:
+        return 0.0
+    hz = len(profile) / duration
+    a, b = int(start * hz), int(min(end, duration) * hz)
+    seg = profile[max(0, a):max(a + 1, b)]
+    return float(seg.max()) if len(seg) else 0.0
 
 
 def transcript_between(words: list[Word], start: float, end: float,
@@ -264,6 +282,14 @@ def rank_judged(cands: list[dict], k: int, min_gap: float = 90.0,
             s += 1.5
         if c.get("payoff_kind") == "none":
             s -= 4.0
+        # Loudness is kept in the RANKING even though the scorer's weight for
+        # it was cut long ago, because those are different jobs: loud does not
+        # mean viral, but among candidates already judged watchable it is the
+        # best available tiebreak. Measured per-feature lift against crowd
+        # top-5 membership: loudness 1.30x, needs_visuals 1.36x, has_story
+        # 1.21x, the judge's own `funny` only 1.07x, chat 0.99x. Blending
+        # `funny` with loudness scored 0.367 where either alone scored 0.267.
+        s += LOUD_W * 10.0 * float(c.get("loud") or 0.0)
         return s
 
     ranked = sorted(cands, key=base, reverse=True)

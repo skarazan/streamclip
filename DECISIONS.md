@@ -520,3 +520,42 @@ Now unwrapped defensively and logged loudly when nothing maps.
 That is the fourth defect of this exact class in two weeks (ffmpeg exiting 0
 on an empty file, a timed-out call still billed, a chunk lost on every model,
 now this). Standing rule: a stage that can produce nothing must say so.
+
+### 2026-08-03 (later) — the judge did not survive the holdout
+
+The inverted architecture was measured on the held-out set and the judging
+half failed. Recorded in full because the result argues against the idea I
+had just built.
+
+    system                                   dev     holdout
+    production today (score_with_llm)        0.057   0.067
+    plain loudness peaks (baseline)          0.229   0.300
+    candidate pool ranked by loudness        0.257   0.333
+    pool + judge filter (drop "no payoff")   0.286   0.333
+    pool + judge RANKING                     0.314   0.133
+
+Ranking weights tuned on dev transferred inversely: LOUD_W=2 scored 0.343 on
+dev and 0.133 on holdout. Per-feature lift against crowd top-5 membership had
+already predicted it — loudness 1.30x, needs_visuals 1.36x, has_story 1.21x,
+and the judge's own `funny` only 1.07x, which is no signal at all. `has_story`
+as a filter scored 0.033 on holdout: worse than random.
+
+Conclusion: the LLM judge does not improve moment selection against crowd
+evidence. What DOES hold is the candidate pool and the window shape — cheap
+loudness+chat peaks at a 30s gap, ranked by loudness, beat both the current
+production path (by ~5x) and the loudness baseline, on both sets, with no
+model in the loop.
+
+So the shippable finding is candidate GENERATION, not judgement, and it is
+free. The judge stays in the tree behind `generate.judge` because it is the
+only thing that could encode taste, and crowd recall does not measure taste —
+but it may not be presented as an improvement, because on the only evidence we
+have it is not one.
+
+Two process notes, both mistakes made in this session:
+
+- A first blend measured 0.367 on what looked like the dev set. It was six
+  cache files spanning dev AND holdout. Contaminated samples flatter.
+- scripts/tune_rank.py read caches written before candidates carried `loud`,
+  so every loudness weight scored identically and the sweep reported "no
+  effect". A tuner that cannot distinguish a weight from zero is not a tuner.

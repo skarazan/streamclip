@@ -356,6 +356,23 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
     vod_work = work / vod_id
     vod_work.mkdir(exist_ok=True)
 
+    # 1.2 The persona and streamer name in a config file belong to ONE
+    # channel. Pointing --vod at somebody else's stream kept them: a maj0r VOD
+    # was scored against CaseOh's archetypes and shipped titled "CASEOH ...".
+    # Service jobs were fixed on 2026-07-25 by forcing `generic`; local runs
+    # still inherited the personal config. Verify against the VOD itself.
+    if vod_url and cfg.get("persona", "generic") != "generic":
+        try:
+            actual = (fetch.vod_info(vod_url).get("channel") or "").lower()
+        except Exception:
+            actual = ""
+        configured = (cfg.get("channel", {}).get("twitch_url", "")
+                      .rstrip("/").rsplit("/", 1)[-1].lower())
+        if actual and configured and actual != configured:
+            print(f"VOD belongs to '{actual}', config is for '{configured}' "
+                  f"-> persona=generic, streamer_name='{actual}'")
+            cfg = {**cfg, "persona": "generic", "streamer_name": actual}
+
     # 1.5 Can we actually get video? Segment download is step 7, after
     # transcription and the paid LLM scoring pass, so a VOD whose media Twitch
     # refuses used to cost ~13 minutes and a full scoring bill before failing.

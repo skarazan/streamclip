@@ -559,3 +559,34 @@ Two process notes, both mistakes made in this session:
 - scripts/tune_rank.py read caches written before candidates carried `loud`,
   so every loudness weight scored identically and the sweep reported "no
   effect". A tuner that cannot distinguish a weight from zero is not a tuner.
+
+### 2026-08-03 — whose stream is this, and whose crowd am I grading against
+
+Two related errors, both caught by the founder looking at output rather than
+at numbers.
+
+**A personal config followed a stranger's VOD.** `--vod` pointed at a maj0r
+stream while `config.yaml` still said `persona: caseoh`, so the moments were
+selected against CaseOh's archetypes and the clips shipped titled "CASEOH ...".
+Service jobs were fixed on 2026-07-25 by forcing `generic`; local runs still
+inherited the personal config, and every local verification batch since is
+suspect for the same reason. `run()` now probes the VOD's actual channel and
+falls back to generic when it does not match the configured one.
+
+**The harness corpus is the wrong streamers.** Resolved every cached VOD:
+
+    caseoh_   11 VODs
+    Jynxzi     2 VODs
+    Maj0r      1 VOD  — 4 viewer clips, excluded (needs >=2 clusters)
+
+So every selection number measured today (0.057 production, 0.229 loudness,
+0.333 pool) comes from two mega-streamers. The harness prints this limitation
+in its own footer and it was still under-weighted: the paying customer looks
+like maj0r, and maj0r is excluded from the benchmark BY CONSTRUCTION, because
+having no viewer clips is what makes someone a Tier-C customer.
+
+This does not invalidate the mechanical findings — the silent-judgement bug,
+the candidate-pool ceiling, and the action-crop fix are all independent of
+whose stream it is. It does mean "the cheap pool beats production 5x" is a
+claim about CaseOh and Jynxzi, and must not be repeated as a claim about the
+customer until it is tested on small-channel VODs with founder labels.

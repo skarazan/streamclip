@@ -590,3 +590,50 @@ the candidate-pool ceiling, and the action-crop fix are all independent of
 whose stream it is. It does mean "the cheap pool beats production 5x" is a
 claim about CaseOh and Jynxzi, and must not be repeated as a claim about the
 customer until it is tested on small-channel VODs with founder labels.
+
+### 2026-08-03 (later still) — the spec's structural signals were built and measured
+
+After re-reading research/clip-quality-spec.md it was clear the day's work had
+re-run two experiments the spec already documents as failures: an LLM humour
+judge (§0: "measurably bad humour judges, rho=0.27, #1 failure is over-rating
+loud/absurd content") and an increase in the loudness weight (§0: "the weakest,
+most false-positive-prone signal in every academic study").
+
+So §3 and §5 were implemented instead — clipfarm/signals.py — and measured
+the same way. Lift against crowd top-5 membership, n=818 candidates, 90
+positives, across 13 cached VODs:
+
+    raw loudness        1.25x
+    self-laugh          2.02x   (fires on 3% of hits — too rare to rank on)
+    dead air after      1.14x
+    energy delta        1.05x
+    novelty             1.04x
+    disbelief cluster   1.02x
+    escalation          0.94x
+    quiet + sincere     0.00x   (never fires on a hit)
+    "clip that" callout 0.00x   (never fires at all)
+
+Three findings, all negative, all worth keeping:
+
+1. **The spec's own replacement for loudness is worse than loudness.** §5 says
+   voice-energy DELTA vs a rolling baseline "replaces raw dB — Eklipse's own
+   fix". Measured, the delta lifts 1.05x where raw dB lifts 1.25x. Being in
+   the spec is not evidence.
+
+2. **The transcript signatures are too sparse to rank on.** Not broken —
+   verified against raw transcripts. In one 4.3h VOD "clip that" occurs ZERO
+   times, the sincerity lexicon twice, and laughter 20 times in 20,164 words.
+   A signal that fires on 3% of moments cannot order a shortlist.
+
+3. **Nothing in the transcript+audio envelope separates crowd favourites
+   well.** Across everything tried in one day — LLM scoring, LLM judging,
+   loudness, chat spikes, energy delta, and eight structural signatures — the
+   best single feature lifts 1.25x over a base rate of 11%. That is the
+   honest ceiling of what we can currently measure, and it is low.
+
+Caveat that cuts the other way, and is the reason signals.py is kept rather
+than deleted: all of this is measured on CaseOh/Jynxzi, where "crowd top-5 in
+a 60-minute slice" is a needle-in-haystack target. On a Tier-C VOD the
+question is only "is this moment worth posting at all", which is a much easier
+bar and where sparse-but-specific signals like self-laugh may earn their place.
+That is untested, and it is the only test that matters.

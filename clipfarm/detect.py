@@ -1276,7 +1276,8 @@ def _settle_end(m: Moment, profile: np.ndarray, words: list[Word],
 
 def keep_intervals(words: list[Word], start: float, end: float,
                    max_gap: float = 3.5, keep_air: float = 0.45,
-                   profile: np.ndarray | None = None
+                   profile: np.ndarray | None = None,
+                   hard_gap: float = 6.0
                    ) -> list[tuple[float, float]]:
     """Jump-cut plan for one clip: dead air LONGER than max_gap shrinks to a
     beat (keep_air). DURATION is the real signal — measured on real clips,
@@ -1296,11 +1297,12 @@ def keep_intervals(words: list[Word], start: float, end: float,
         # (a scream/effect between words). gap > 6s: ALWAYS cut — no payoff
         # sound lasts 6s+; a long no-speech stretch is dead air even when
         # loud game music plays under it (that's what left a 26s gap in a
-        # clip). Duration overrides loudness past 6s.
+        # clip). Duration overrides loudness past `hard_gap` (6s for Shorts;
+        # long-form raises it, see compile.LF_HARD_GAP).
         gap = b_start - a_end
         if gap <= max_gap:
             return True
-        if gap > 6.0:
+        if gap > hard_gap:
             return False
         if profile is None or not len(profile):
             return False

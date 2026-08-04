@@ -33,7 +33,17 @@ MIN_MIN, MAX_MIN = 11, 18  # required finished length window
 # Fraction of a raw window that survives the silence jump-cut. Measured on the
 # first cut-enabled comp; used only to size the clip count so the finished
 # video still lands in the length window.
-EXPECTED_KEEP = 0.78
+EXPECTED_KEEP = 0.88
+# Long-form silence tolerances. Shorts use 3.5s/6s because every second is
+# rent; at 13 minutes the video can afford to let a moment breathe, and
+# cutting a 7s quiet stretch often deletes the visual gag itself.
+# Set EQUAL on purpose: everything up to this is kept outright, past it is
+# cut outright. Leaving a middle band would defer to loudness, and a silent
+# visual gag (streamer watching something land, a BBL on screen) has no
+# loudness to show for itself -- which is exactly how it got deleted.
+LF_MAX_GAP = 12.0
+LF_HARD_GAP = 12.0
+LF_KEEP_AIR = 1.0    # leave a full beat around each cut
 
 
 def _sb(path: str, **kw) -> list:
@@ -214,7 +224,16 @@ def compile_video(channel: str, title: str, streams: int = 4,
         # guarded by raw loudness, so quiet game/NPC sound survives while
         # genuine silence goes (DECISIONS.md 2026-07-23).
         keep, seg_len = None, ce - cs
+        # Long-form tolerances, NOT the Shorts ones. A Short pays rent on
+        # every second; a 13-minute video has room to let a joke land. Gaps
+        # up to LF_MAX_GAP are always kept, so beats and visual gags survive;
+        # only genuinely long quietness (past LF_HARD_GAP) is removed, and
+        # the window's own head and tail are never trimmed, so the setup and
+        # the aftermath stay.
         ivals = detect.keep_intervals(words, cs, ce,
+                                      max_gap=LF_MAX_GAP,
+                                      keep_air=LF_KEEP_AIR,
+                                      hard_gap=LF_HARD_GAP,
                                       profile=_raw_profile(c["vod_url"]))
         kept = sum(e - s for s, e in ivals)
         if ivals and kept > 5.0 and (ce - cs) - kept > 1.5:

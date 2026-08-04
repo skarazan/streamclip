@@ -9,7 +9,11 @@ channel:
   twitch_url: "https://www.twitch.tv/caseoh_"
 
 clips:
-  count: 3              # shorts to produce per run
+  count: 10             # shorts per run. Marginal clip = $0.011 (transcription
+                        # and scoring are per-VOD fixed), and no signal ranks
+                        # better than ~1.25x over chance, so surfacing more is
+                        # the only reliable lever on usable output. See
+                        # research/2026-08-03-signal-ceiling.md and BUSINESS.md.
   min_length: 16        # seconds
   max_length: 45        # duration is not the enemy; dead/irrelevant time is
   smart_cut: true         # LLM condense redundant talking when a clip stays long after silence-cut

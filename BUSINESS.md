@@ -82,6 +82,40 @@ measurement, but verify against recorded costs, and watch two new COGS lines:
 timeline-editor **proxy encodes** (one per edit job) and **final revision
 exports** (one full encode each — meter these if users iterate heavily).
 
+### How many clips per VOD (decided 2026-08-03)
+
+Measured from real job records: **the marginal cost of one more clip is
+$0.011**. Transcription and scoring are per-VOD fixed costs ($0.394 combined);
+a clip only adds ~84 seconds of 8-vCPU time for its segment download, caption
+pass, facecam match and encode.
+
+| clips | COGS/VOD | margin (Starter) | expected GOOD clips at the measured ~1-in-5 |
+|---|---|---|---|
+| 3 (old default) | $0.426 | 72% | 0.6 |
+| 8 | $0.480 | 70% | 1.6 |
+| **10 (recommended)** | **$0.502** | **68%** | **2.0** |
+| 15 | $0.556 | 65% | 3.0 |
+
+Going from 3 to 10 costs 7.6 cents a VOD and four points of margin, and it is
+the only lever that reliably increases usable output, because
+research/2026-08-03-signal-ceiling.md establishes that no available signal
+separates good moments by more than ~1.25x. We cannot rank our way to a good
+clip; we can afford to surface more of them.
+
+The pipeline already selects ~12 candidates and ships 3 — we are paying to
+find and verify twelve, then discarding nine.
+
+**Conditions on shipping 10.** Volume without triage is worse than three
+clips, so this is only correct alongside a fast review surface: a grid of
+hover-preview thumbnails with one-tap keep/discard. That does not violate the
+automatic rule — the customer still never hunts through a five-hour VOD,
+which is the labour actually being sold. Wall-clock also rises (~85s per extra
+clip, two encodes in parallel), so a 10-clip job runs ~20-25 min; that is
+within the "clips while you sleep" promise but not within a live demo.
+
+Pricing copy stays "verified clips only, count is a target": the quality gate
+still refuses to ship unverified moments, so a quiet stream yields fewer.
+
 ### Contribution per subscriber (Starter, worst case all 8 credits used)
 
 - Revenue $14.99 − Stripe (2.9% + $0.30 ≈ $0.73) − COGS (8 × $0.70 = $5.60)

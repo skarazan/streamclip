@@ -15,6 +15,20 @@ def _run(cmd: list[str], timeout: int = 1800) -> str:
     return r.stdout
 
 
+# Twitch answers a datacenter IP with a VOD-level 404 now and then; it clears
+# on its own. Retry the whole route sequence a couple of times with real
+# patience before telling the customer their video is gone.
+_TRANSIENT_ROUNDS = 3
+_TRANSIENT_BACKOFF_S = 20.0
+_TRANSIENT_MARKS = ("does not exist", "unavailable", "429", "timed out",
+                    "timeout", "temporarily", "503", "502")
+
+
+def _looks_transient(problems: list[str]) -> bool:
+    blob = " ".join(problems).lower()
+    return any(m in blob for m in _TRANSIENT_MARKS)
+
+
 class SegmentUnavailable(RuntimeError):
     """Twitch would not serve this range's media after every available route."""
 
@@ -383,24 +397,44 @@ def download_segment(vod_url: str, start: float, end: float, dest: Path,
     instead of an empty file that breaks a later stage.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    problems = []
-    for attempt in range(attempts):
+
+    def _all_routes() -> tuple[Path | None, list[str]]:
+        problems: list[str] = []
+        for attempt in range(attempts):
+            try:
+                got = _ytdlp_segment(vod_url, start, end, dest, quality)
+                _validate_media(got, _MIN_SEGMENT_BYTES, need_video=True)
+                return got, problems
+            except (SegmentUnavailable, RuntimeError) as e:
+                problems.append(f"yt-dlp#{attempt + 1}: {str(e)[:160]}")
+                dest.unlink(missing_ok=True)
+                if attempt + 1 < attempts:
+                    time.sleep(2.0 * (attempt + 1))
         try:
-            got = _ytdlp_segment(vod_url, start, end, dest, quality)
+            got = _fragment_segment(vod_url, start, end, dest, quality)
             _validate_media(got, _MIN_SEGMENT_BYTES, need_video=True)
-            return got
+            return got, problems
         except (SegmentUnavailable, RuntimeError) as e:
-            problems.append(f"yt-dlp#{attempt + 1}: {str(e)[:160]}")
+            problems.append(f"fragments: {str(e)[:160]}")
             dest.unlink(missing_ok=True)
-            if attempt + 1 < attempts:
-                time.sleep(2.0 * (attempt + 1))
-    try:
-        got = _fragment_segment(vod_url, start, end, dest, quality)
-        _validate_media(got, _MIN_SEGMENT_BYTES, need_video=True)
-        return got
-    except (SegmentUnavailable, RuntimeError) as e:
-        problems.append(f"fragments: {str(e)[:160]}")
-        dest.unlink(missing_ok=True)
+        return None, problems
+
+    # Outer pass with LONG backoff. The inner routes retry within ~6 seconds,
+    # which does not survive Twitch intermittently refusing a whole VOD to a
+    # datacenter IP ("Video NNN does not exist" for a VOD that is plainly
+    # live). Measured 2026-08-06: a job died on that error and the same VOD
+    # processed end to end minutes later. Sixty seconds of patience is far
+    # cheaper than failing a customer's edit.
+    last: list[str] = []
+    for round_no in range(_TRANSIENT_ROUNDS):
+        got, problems = _all_routes()
+        if got is not None:
+            return got
+        last = problems
+        if round_no + 1 < _TRANSIENT_ROUNDS and _looks_transient(problems):
+            time.sleep(_TRANSIENT_BACKOFF_S * (round_no + 1))
+            continue
+        break
     raise SegmentUnavailable(
         f"{start:.0f}-{end:.0f}s unavailable after every route — "
-        + " | ".join(problems))
+        + " | ".join(last))

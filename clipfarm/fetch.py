@@ -176,10 +176,32 @@ def latest_vod_url(twitch_url: str) -> tuple[str, str]:
     return vods[0]
 
 
-def vod_info(vod_url: str) -> dict:
+def vod_info(vod_url: str, attempts: int = 4) -> dict:
     """Cheap metadata probe: {live, duration_s}. Run before committing a
-    worker — liveness stalls processing, duration drives credit cost."""
-    out = _run(["yt-dlp", "-J", "--no-download", vod_url], timeout=120)
+    worker — liveness stalls processing, duration drives credit cost.
+
+    Retried, because Twitch intermittently answers a datacenter IP with
+    "Video NNN does not exist" for a VOD that plainly exists. On 2026-08-06 a
+    job died here on a VOD that had been public for 21 hours, downloaded fine
+    from a residential connection, and processed end to end on the very next
+    attempt. A transient upstream 404 must not burn a customer's credit and
+    tell them their VOD was deleted. A genuinely missing VOD still fails, a
+    few seconds later.
+    """
+    out, last = None, None
+    for i in range(attempts):
+        try:
+            out = _run(["yt-dlp", "-J", "--no-download", vod_url], timeout=120)
+            break
+        except Exception as e:
+            last = e
+            if i < attempts - 1:
+                time.sleep(4 * (i + 1))
+    if out is None:
+        raise RuntimeError(
+            f"Twitch would not return metadata for {vod_url} after {attempts} "
+            f"attempts. If that VOD opens in a browser, this is Twitch "
+            f"refusing our servers rather than a missing video.\n{last}")
     info = json.loads(out)
     # post_live = stream ended but Twitch hasn't finalized the VOD;
     # yt-dlp falls back to serial ffmpeg-HLS at ~1x realtime for those.

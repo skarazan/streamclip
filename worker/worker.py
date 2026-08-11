@@ -442,6 +442,28 @@ def process_clip_edit(job: dict) -> None:
         # already moved to the exported values -- the user edited against a
         # stale timeline and the next export compounded it into a different
         # cut of the same moment. Persist what was actually rendered.
+        # The editor REUSES an existing clip_source job and reads the recipe
+        # stored on THAT job, so this is the copy that decides what a reopened
+        # timeline shows. Updating only the root job's clip_recipes left the
+        # source job holding the original AI cuts: every reopen reverted to
+        # them, which reads as "last edit progress is lost every time after
+        # export" and, because the original start sits earlier, as the export
+        # "adding a few seconds to the start".
+        if p.get("source_job_id"):
+            try:
+                rows = sb("GET", f"/rest/v1/jobs?id=eq.{p['source_job_id']}"
+                                 f"&select=progress").json()
+                if rows:
+                    sp = rows[0].get("progress") or {}
+                    sb("PATCH", f"/rest/v1/jobs?id=eq.{p['source_job_id']}",
+                       json={"progress": {**sp, "recipe": {
+                           "source_start": start, "source_end": end,
+                           "keep_intervals": [[a, b] for a, b in keep],
+                           "cam": p.get("cam") or sp.get("cam"),
+                       }}})
+            except Exception as e:
+                print(f"  ! could not refresh source recipe "
+                      f"({type(e).__name__}: {str(e)[:80]})")
         try:
             parent = sb("GET", f"/rest/v1/jobs?id=eq.{clip['job_id']}"
                                f"&select=progress").json()

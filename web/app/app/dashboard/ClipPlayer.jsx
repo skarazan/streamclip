@@ -1,18 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+// The object this URL points at, ignoring the presigned query string. Same
+// object + new signature is churn; a different object is a different clip.
+const objectOf = (url) => String(url || "").split("?")[0];
 
 // Click-to-load player. A mounted <video> holds decoder + network buffers
 // (~100MB each in Chromium); a grid of always-mounted players was eating
 // >1GB. Nothing loads until the user asks; closing releases it again.
 export default function ClipPlayer({ src, title }) {
-  // The URL is captured ONCE, when the user presses play, and never follows
-  // the prop afterwards. The dashboard mints a fresh presigned R2 URL on
-  // every server render, and DashboardAutoRefresh re-renders whenever job
-  // progress changes — so a playing clip had its `src` swapped every few
-  // seconds and the element reloaded mid-playback. Loading several made it
-  // look random because they all reloaded together.
+  // The URL is captured when the user presses play, because the dashboard
+  // mints a fresh presigned R2 URL on every server render and
+  // DashboardAutoRefresh re-renders whenever job progress changes — a
+  // playing clip had its `src` swapped every few seconds and reloaded
+  // mid-playback.
   const [playing, setPlaying] = useState(null);
+
+  // ...but pinning the URL outright meant an exported revision never
+  // appeared: the clip row pointed at the new file while the open player
+  // kept showing the old one, reported as "im still seeing the same thing
+  // not my version". Follow a change of OBJECT, ignore a change of
+  // signature.
+  useEffect(() => {
+    setPlaying((current) =>
+      current && objectOf(current) !== objectOf(src) ? src : current);
+  }, [src]);
 
   if (!playing) {
     return (

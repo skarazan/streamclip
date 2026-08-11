@@ -374,7 +374,20 @@ def _fragment_segment(vod_url: str, start: float, end: float, dest: Path,
 
     # Re-encode to land exactly on the requested bounds, matching what
     # --force-keyframes-at-cuts gave the fast path.
+    #
+    # WARNING, measured 2026-08-11: this alignment is only as good as the
+    # EXTINF sum. Twitch playlists carry discontinuities (ads, muted spans),
+    # so the summed clock can drift from real VOD time and this route can land
+    # a fragment (~10s) away from the requested start. An editor session whose
+    # proxy came from yt-dlp and whose master came from HERE was 10.4s apart,
+    # while a session predating this route measured 0.00s. The editor now
+    # measures and compensates (render.audio_lag_seconds), but a plain clip
+    # render has no reference to correct against — so this stays a FALLBACK,
+    # never a preferred path, and it announces itself in the log.
     offset = max(0.0, start - covering[0][0])
+    print(f"  fragment-route download for {start:.0f}-{end:.0f}s "
+          f"(first fragment at {covering[0][0]:.0f}s, offset {offset:.1f}s) "
+          f"— alignment may differ from the yt-dlp route")
     r = subprocess.run(
         [ffmpeg_path(), "-y", "-v", "error", "-ss", f"{offset:.3f}",
          "-i", str(blob), "-t", f"{end - start:.3f}",

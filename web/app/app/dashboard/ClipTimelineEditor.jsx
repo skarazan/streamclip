@@ -263,7 +263,14 @@ export default function ClipTimelineEditor({ clipId }) {
     if (exporting) return;
     const keep = subtractCuts(start, end, cuts);
     setExporting(true);
-    setMessage("Queuing revision…");
+    // Show what is actually being sent. Three consecutive exports produced
+    // byte-identical recipes while the timeline appeared edited, and there
+    // was no way to tell from the UI whether the drag had reached this
+    // state or the render was ignoring it. The numbers here are the payload.
+    setMessage(
+      `Queuing ${keep.reduce((t, [a, b]) => t + (b - a), 0).toFixed(1)}s`
+      + ` from ${start.toFixed(1)}–${end.toFixed(1)}`
+      + ` (${keep.length} piece${keep.length === 1 ? "" : "s"})…`);
     const r = await fetch(`/api/clips/${clipId}/revisions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

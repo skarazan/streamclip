@@ -648,3 +648,59 @@ def render_short(segment: Path, ass_file: Path, dest: Path, crop: str = "center"
     if r.returncode != 0:
         raise RuntimeError(f"render failed: {r.stderr[-2000:]}")
     return dest
+
+
+def audio_lag_seconds(reference: Path, other: Path,
+                      max_lag: float = 30.0) -> float:
+    """Seconds L where other[t] holds the same audio as reference[t + L].
+
+    The editor proxy and the render master are DOWNLOADED SEPARATELY, at
+    different renditions (360p vs 1080p). Twitch's renditions carry
+    independent segment boundaries, so yt-dlp cuts the same requested range
+    at a different frame in each: measured 10.4s apart on VOD 2837569636,
+    which is one VOD segment. The user then edits against the proxy timeline
+    while the export cuts the master with those numbers, and the finished
+    clip starts somewhere the user never chose.
+
+    Audio is the only comparable channel — the proxy is a composed 9:16
+    preview while the master is raw 16:9, so pixels do not correspond.
+    Returns 0.0 when the match is not convincing, so an unreliable reading
+    cannot shift a clip that was fine.
+    """
+    import numpy as np
+
+    def envelope(path: Path):
+        r = subprocess.run(
+            [ffmpeg_path(), "-v", "error", "-i", str(path),
+             "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
+            capture_output=True)
+        if r.returncode != 0 or not r.stdout:
+            return None
+        pcm = np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32)
+        hop = 160                      # 50 Hz envelope
+        n = len(pcm) // hop
+        if n < 200:
+            return None
+        env = np.abs(pcm[:n * hop].reshape(n, hop)).mean(axis=1)
+        return (env - env.mean()) / (env.std() + 1e-9)
+
+    a, b = envelope(reference), envelope(other)
+    if a is None or b is None:
+        return 0.0
+    n = min(len(a), len(b))
+    best_corr, best_lag = -1e9, 0
+    for lag in range(-int(max_lag * 50), int(max_lag * 50) + 1, 5):
+        if lag >= 0:
+            x, y = a[:n - lag], b[lag:n]
+        else:
+            x, y = a[-lag:n], b[:n + lag]
+        if len(x) < 200:
+            continue
+        corr = float((x * y).mean())
+        if corr > best_corr:
+            best_corr, best_lag = corr, lag
+    # A real alignment scores ~0.7 against ~0.04 at the wrong offset; refusing
+    # anything weaker keeps noise from moving a correctly aligned pair.
+    if best_corr < 0.35:
+        return 0.0
+    return -best_lag / 50.0

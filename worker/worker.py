@@ -334,10 +334,26 @@ def process_clip_source(job: dict) -> None:
         master = fetch.download_segment(
             job["vod_url"], float(p["source_start"]), float(p["source_end"]),
             work / "source_1080.mp4", cfg["clips"]["quality"])
+        # The proxy and the master are separate downloads at different
+        # renditions, and Twitch's renditions carry independent segment
+        # boundaries -- yt-dlp cuts the same requested range at a different
+        # frame in each. Measured 10.4s apart on VOD 2837569636, one whole VOD
+        # segment. The user edits against the proxy timeline and the export
+        # cuts the master with those numbers, so the finished clip started
+        # somewhere they never chose. Measure it instead of assuming zero.
+        lag = 0.0
+        try:
+            lag = render.audio_lag_seconds(source, master)
+            if lag:
+                print(f"  proxy/master misaligned by {lag:+.2f}s "
+                      f"-- exports will compensate")
+        except Exception as e:
+            print(f"  ! could not measure proxy/master lag "
+                  f"({type(e).__name__}: {str(e)[:80]})")
         master_key = (
             f"{job['user_id']}/{clip['id']}/editor/master-{job['id']}.mp4")
         upload_r2(master, master_key)
-        return master_key
+        return master_key, lag
 
     def prepare_words():
         ctx = f"Twitch gaming stream by {user.get('twitch_login', 'a streamer')}."
@@ -352,9 +368,10 @@ def process_clip_source(job: dict) -> None:
         with ThreadPoolExecutor(max_workers=2) as pool:
             master_future = pool.submit(prepare_master)
             words_future = pool.submit(prepare_words)
-            master_key = master_future.result()
+            master_key, master_lag = master_future.result()
             words = words_future.result()
-        ready.update({"master_key": master_key, "transcript": words})
+        ready.update({"master_key": master_key, "transcript": words,
+                      "master_lag_s": master_lag})
         sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}",
            json={"progress": ready})
     except Exception as e:
@@ -394,7 +411,11 @@ def process_clip_edit(job: dict) -> None:
     if source_progress.get("master_key"):
         source = download_r2(
             source_progress["master_key"], work / "source.mp4")
-        media_start = float(source_progress["source_start"])
+        # Proxy and master are cut at different frames by Twitch's separate
+        # renditions; media_start must be where the MASTER actually begins in
+        # proxy time, or every export lands one segment away from the edit.
+        media_start = (float(source_progress["source_start"])
+                       + float(source_progress.get("master_lag_s") or 0.0))
     else:
         source = fetch.download_segment(
             job["vod_url"], start, end, work / "source.mp4",

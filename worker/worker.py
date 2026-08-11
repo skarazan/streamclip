@@ -436,6 +436,28 @@ def process_clip_edit(job: dict) -> None:
         sb("PATCH", f"/rest/v1/clips?id=eq.{clip['id']}", json={
             "r2_key": key, "start_s": start, "end_s": end,
         })
+        # Reopening the editor reads clip_recipes[clip_id] off the ROOT job,
+        # which until now only the publishing pass ever wrote. So a second
+        # edit session loaded the ORIGINAL AI cuts while the clip's bounds had
+        # already moved to the exported values -- the user edited against a
+        # stale timeline and the next export compounded it into a different
+        # cut of the same moment. Persist what was actually rendered.
+        try:
+            parent = sb("GET", f"/rest/v1/jobs?id=eq.{clip['job_id']}"
+                               f"&select=progress").json()
+            if parent:
+                prog = parent[0].get("progress") or {}
+                recipes = dict(prog.get("clip_recipes") or {})
+                recipes[clip["id"]] = {
+                    "source_start": start, "source_end": end,
+                    "keep_intervals": [[a, b] for a, b in keep],
+                    "cam": p.get("cam"),
+                }
+                sb("PATCH", f"/rest/v1/jobs?id=eq.{clip['job_id']}",
+                   json={"progress": {**prog, "clip_recipes": recipes}})
+        except Exception as e:      # never fail a good export over bookkeeping
+            print(f"  ! could not persist edit recipe ({type(e).__name__}: "
+                  f"{str(e)[:80]})")
     sb("PATCH", f"/rest/v1/jobs?id=eq.{job['id']}", json={
         "status": "done", "finished_at": "now()",
         "progress": {**p, "stage": "done", "r2_key": key,

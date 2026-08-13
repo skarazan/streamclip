@@ -664,3 +664,108 @@ it only governed the branch where SOME segments matched.
 Rule: position consensus is a fallback for having no recognizer and no
 identity. It is not a second opinion that may overrule one. When identity
 matching runs and returns nothing, full frame is the answer.
+
+## 2026-08-12 — the misaligned clip came from the PRIMARY route, not the fallback
+
+The 2026-08-11 session recorded a proxy/master offset of 10.4s and blamed
+`_fragment_segment`: Twitch playlists carry discontinuities, so the summed
+EXTINF clock was said to drift from real VOD time and land the fallback ~10s
+away. The prescribed fix was to distrust that route — read fMP4
+`baseMediaDecodeTime` instead of EXTINF, or refuse the route for final
+renders. Measured, every part of that is wrong, and acting on it would have
+removed the only accurate route we have.
+
+What the measurements say (all on artifacts, cross-correlated audio):
+
+- **The VOD was misidentified.** The 10.4s reading belongs to job 559b8a20 on
+  VOD **2842062490** at 4296s. Both code comments named 2837569636, which is a
+  FAILED clip_source from six days earlier. Downloading four ranges of
+  2837569636 by every route gives 0.00s.
+- **There is no EXTINF drift to correct.** These playlists carry zero
+  `#EXT-X-DISCONTINUITY` tags, and the summed EXTINF equals the declared
+  `EXT-X-TWITCH-TOTAL-SECS` exactly (14163.867s over 1405 fragments).
+- **`baseMediaDecodeTime` does not exist here.** The renditions are MPEG-TS
+  with no `#EXT-X-MAP`. The first option in the handoff was unimplementable.
+- **The renditions do not have independent segment boundaries.** The 360p,
+  chunked and audio_only playlists of 2842062490 agree fragment for fragment,
+  and on total duration within 0.04s.
+- **The fallback was exact and the fast path was not.** At 4296s, three of the
+  four downloads agree; the outlier is the yt-dlp 360p cut — the PROXY —
+  which returns content from 4285.6s, the covering fragment's start. It
+  reproduces on every rerun and at every duration tried.
+
+Cause: `--download-sections` hands the playlist to ffmpeg, which decides for
+itself where to begin and sometimes does not trim at all. Requesting the
+fragment boundary instead does not help: it then returns the fragment BEFORE
+that.
+
+Swept over 20 offsets at both renditions, **5 of 40 downloads landed more than
+0.5s from the request**:
+
+    360p    4 of 20 misaligned, every one by a whole fragment (10.3-10.9s)
+    1080p   1 of 20 misaligned, by 0.80s
+
+Every whole-fragment miss asked for a second more than 10s inside an
+over-length fragment (10.35-11.00s into 10.95-11.6s fragments), and every
+offset at most 9.08s into its fragment was exact. That rule is clean, and it
+does not explain the fifth case: 1080p at 11500s, 0.80s off, 1.27s into a
+nominal 10s fragment.
+
+Two things follow. The master rendition is NOT immune, so this was never only
+an editor-proxy problem — a normal clip render can ship off-target too, which
+is the exposure the handoff was right to be worried about even though it had
+the route backwards. And the depth rule is a correlation, not the mechanism,
+which is why the fix VERIFIES every download instead of predicting which ones
+need checking.
+
+Decision: `download_segment` fetches fragments FIRST and treats yt-dlp as the
+backup, and every route must prove it landed where it was asked.
+
+- The fragment cut is our own arithmetic on the cumulative EXTINF clock, and
+  that clock is the pipeline's time base by construction: `download_audio`
+  concatenates every fragment without seeking, so second N of the transcript
+  is second N of that sum. Alignment is therefore a property of the code, not
+  a hope about ffmpeg.
+- Verification is one audio-only probe (~150KB/fragment) plus one correlation,
+  and it rejects the download rather than shipping it. A range under 20s, or a
+  passage too quiet to correlate, reports "cannot tell" and is allowed
+  through — a check that can reject a clip must never do so on a reading it
+  does not trust.
+- The fallback ordering also costs nothing: measured on a 40s 1080p range, the
+  fragment route took 44-55s against ~127s for yt-dlp, for ~10% more bytes.
+  "The fallback re-encodes, so it is slower" (2026-07-25) was never measured;
+  the fast path re-encodes too, and it is the slower of the two.
+
+Risks and containment:
+
+- Both routes misaligned means the candidate now fails instead of shipping
+  ~10s from the selected moment. Candidates already refill from the bench.
+- The probe is near-tautological for the fragment route — same clock on both
+  sides — so it only catches a truncated fetch or a bad cut there. It earns
+  its keep on the backup route.
+- The fragment route fetches whole covering fragments, so it downloads up to
+  ~20s of extra media per clip.
+
+### The measuring instrument had two defects of its own
+
+`render.audio_lag_seconds` decides how far every editor export is shifted, so
+a wrong reading there is worse than no reading. Both of these were found by
+using it, not by reading it:
+
+- searching +/-30s on a 30s pair leaves 6.3s of overlap, and 6.3s of overlap
+  scored above the 0.35 threshold and returned a confident **-23.70s on a pair
+  that was actually aligned**. Another such pair crashed outright: once `lag`
+  exceeds the sample count, `a[:n - lag]` becomes a negative slice and returns
+  nearly the whole array to multiply against an empty one.
+- the sweep `range(-span, span + 1, 5)` steps in fives from `-span`, so unless
+  `span` divides by 5 the offset **zero is never actually tested** and an
+  aligned pair comes back off by a step.
+
+Now: the search is capped so a minimum overlap always remains, mismatched
+windows are skipped, and the sweep is anchored on zero. `AudioLagTests` pins a
+known 5.0s shift, a zero on an aligned pair, and 0.0 (never a guess) when the
+clips are too short to judge.
+
+Fourth standing rule, and the fifth defect of this class in three weeks: a
+stage that can produce nothing must say so — and a stage that produces a
+NUMBER must say how much evidence is under it.

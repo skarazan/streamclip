@@ -35,37 +35,52 @@ all found and fixed, in the order they were masking each other:
    is raw 16:9), `prepare_master` stores it as `master_lag_s`, and `clip_edit`
    applies it.
 
-## The open risk — start here
+## The open risk — FIXED 2026-08-12, and the diagnosis above was backwards
 
-(4) was a REGRESSION we introduced, verified by measurement: an editor session
-from 2026-08-04 has a proxy/master lag of **0.00s**; the 2026-08-11 session has
-**10.4s**.
+The exposure was real: a clip can ship ~10s from the moment that was selected
+with nothing detecting it. The cause named above was wrong in every part, and
+the fix it recommended would have deleted the only accurate route we have.
+Full record in DECISIONS.md; the short version:
 
-Cause: the husk fix (`c30fb32`) added `_fragment_segment`, a fallback that
-fetches HLS fragments directly and computes its cut offset from summed
-`EXTINF` durations. Twitch playlists carry discontinuities (ads, muted spans),
-so that clock drifts from real VOD time and the route can land a fragment
-(~10s) from the requested start. Widening the retries (`d5279e3`) then made
-that fallback succeed where it used to error out, so it started being used.
+- the 10.4s belongs to VOD **2842062490** (job 559b8a20), not 2837569636 —
+  both code comments named a failed job from six days earlier;
+- those playlists have **zero** discontinuities and their summed EXTINF equals
+  Twitch's declared total exactly, so there is no clock to correct;
+- they are MPEG-TS with no `#EXT-X-MAP`, so `baseMediaDecodeTime` does not
+  exist and option one was unimplementable;
+- the renditions have **identical** fragment boundaries, contrary to the
+  comment in `render.audio_lag_seconds`;
+- the misaligned file was the **yt-dlp** proxy, and the fragment route was
+  exact everywhere it was measured — 40 downloads over 20 offsets at two
+  renditions, of which 5 yt-dlp cuts missed by more than 0.5s.
 
-**The editor self-corrects because it has two files to compare. A normal clip
-render does not.** If the fragment route is used during a regular job, the
-shipped clip can be ~10s from the moment that was selected, and nothing
-detects it. Not yet observed in the wild, but it is the same exposure — and it
-would look exactly like "why is this clip random", which the founder has
-reported before.
+One of those five was at **1080p**, so the master rendition is not immune and
+this was never only an editor problem — a normal clip render can ship
+off-target too, exactly the exposure described below.
 
-Fix it properly. Options, roughly in order of soundness:
+`--download-sections` hands the playlist to ffmpeg, which decides for itself
+where to start and sometimes does not trim — reproducibly, when the requested
+second sits deep inside an over-length fragment.
 
-- derive the cut offset from the fragments' own `baseMediaDecodeTime` rather
-  than summed EXTINF;
-- or verify alignment after download (fetch a couple of seconds via the
-  yt-dlp route and cross-correlate) and correct;
-- or refuse the fragment route for final renders and fail the job instead,
-  which is worse UX but never ships a wrong clip silently.
+So `download_segment` now fetches fragments first and verifies every route
+against a cheap audio probe, failing the candidate rather than shipping a
+moment nobody selected. The fragment route also turned out to be ~2.5x FASTER
+than yt-dlp on a 40s 1080p range, so the "slower fallback" note in
+DECISIONS.md was never measured either.
 
-The route already logs whenever it is used — grep worker logs for
-`fragment-route download` to see how often this actually happens.
+Grep worker logs for `backup yt-dlp route` — that path is now the exceptional
+one and announces itself.
+
+Still open, and worth a look before the next editor session:
+
+- `master_lag_s` should read 0.00 on new clip_source jobs now. If it does not,
+  the fragment route is disagreeing with the audio probe and that is a real
+  finding, not noise.
+- Only VOD 2842062490 misbehaved out of the three tested. Every whole-fragment
+  miss asked for a second more than 10s into an over-length fragment, and
+  every offset at most 9.08s in was exact — but the one 1080p miss (0.80s,
+  1.27s into a normal fragment) does not fit that rule, so the mechanism is
+  uncharacterised. The fix does not depend on the answer.
 
 ## Standing rules, learned the hard way
 

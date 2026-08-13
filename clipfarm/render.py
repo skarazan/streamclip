@@ -651,21 +651,30 @@ def render_short(segment: Path, ass_file: Path, dest: Path, crop: str = "center"
 
 
 def audio_lag_seconds(reference: Path, other: Path,
-                      max_lag: float = 30.0) -> float:
+                      max_lag: float = 30.0,
+                      min_overlap: float = 8.0) -> float:
     """Seconds L where other[t] holds the same audio as reference[t + L].
 
-    The editor proxy and the render master are DOWNLOADED SEPARATELY, at
-    different renditions (360p vs 1080p). Twitch's renditions carry
-    independent segment boundaries, so yt-dlp cuts the same requested range
-    at a different frame in each: measured 10.4s apart on VOD 2837569636,
-    which is one VOD segment. The user then edits against the proxy timeline
-    while the export cuts the master with those numbers, and the finished
-    clip starts somewhere the user never chose.
+    The editor proxy and the render master are DOWNLOADED SEPARATELY, and
+    `fetch.download_segment` does not always land on the requested second:
+    measured 10.4s early on VOD 2842062490 at 4296s, one whole VOD segment.
+    The user then edits against the proxy timeline while the export cuts the
+    master with those numbers, and the finished clip starts somewhere they
+    never chose. (An earlier version of this note blamed Twitch's renditions
+    for carrying independent segment boundaries and named the wrong VOD. The
+    360p and 1080p playlists of 2842062490 were measured fragment by fragment
+    and their boundaries are IDENTICAL — see fetch._ytdlp_segment.)
 
     Audio is the only comparable channel — the proxy is a composed 9:16
     preview while the master is raw 16:9, so pixels do not correspond.
     Returns 0.0 when the match is not convincing, so an unreliable reading
     cannot shift a clip that was fine.
+
+    `min_overlap` is not decoration. A correlation is only as trustworthy as
+    the number of samples under it, and both guards below were written after
+    measuring the failure: on a 30s pair that was in fact aligned, a 6.3s
+    overlap scored above the 0.35 threshold and returned a confident -23.70s.
+    Applied to an export, that reading is worse than measuring nothing.
     """
     import numpy as np
 
@@ -688,13 +697,24 @@ def audio_lag_seconds(reference: Path, other: Path,
     if a is None or b is None:
         return 0.0
     n = min(len(a), len(b))
+    need = max(int(min_overlap * 50), 200)
+    # Never search further than the clip can corroborate. Without this cap
+    # `a[:n - lag]` turns into a negative slice once lag exceeds n, which
+    # silently returns almost the whole array against an empty one.
+    span = min(int(max_lag * 50), n - need)
+    if span < 5:
+        return 0.0
     best_corr, best_lag = -1e9, 0
-    for lag in range(-int(max_lag * 50), int(max_lag * 50) + 1, 5):
+    # Anchor the sweep on zero. Starting it at -span makes the offsets a
+    # multiple of 5 away from -span instead, so a perfectly aligned pair is
+    # never actually tested and comes back off by a step.
+    lags = list(range(0, span + 1, 5)) + list(range(-5, -span - 1, -5))
+    for lag in lags:
         if lag >= 0:
             x, y = a[:n - lag], b[lag:n]
         else:
             x, y = a[-lag:n], b[:n + lag]
-        if len(x) < 200:
+        if len(x) != len(y) or len(x) < need:
             continue
         corr = float((x * y).mean())
         if corr > best_corr:

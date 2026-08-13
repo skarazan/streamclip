@@ -7,6 +7,7 @@ from pathlib import Path
 from clipfarm.config import ffmpeg_path
 from clipfarm.render import (
     _opening_filter,
+    audio_lag_seconds,
     audio_waveform_peaks,
     build_ass,
     render_editor_proxy,
@@ -99,6 +100,58 @@ class EditorProxyTests(unittest.TestCase):
                         for s in media["streams"]))
                 self.assertAlmostEqual(
                     float(media["format"]["duration"]), 2.0, delta=.15)
+
+
+class AudioLagTests(unittest.TestCase):
+    """The export shifts every clip by whatever this returns, so a wrong
+    reading is worse than no reading. Both failures pinned here were measured
+    on real downloads (2026-08-12), not imagined."""
+
+    @staticmethod
+    def _wav(path: Path, seconds: float, offset: float = 0.0):
+        """Aperiodic bursts — a periodic envelope correlates at every period
+        and would let a broken search pass."""
+        import numpy as np
+
+        rate = 8000
+        rng = np.random.default_rng(7)
+        gaps = rng.uniform(.35, 1.4, 400)
+        edges = np.cumsum(gaps)
+        t = np.arange(int((seconds + offset) * rate)) / rate + offset
+        loud = (np.searchsorted(edges, t) % 2).astype(np.float32)
+        noise = rng.standard_normal(len(t)).astype(np.float32)
+        pcm = (noise * (loud * .9 + .02) * 12000).astype(np.int16)
+        subprocess.run([
+            ffmpeg_path(), "-y", "-v", "error",
+            "-f", "s16le", "-ar", str(rate), "-ac", "1", "-i", "pipe:0",
+            "-c:a", "aac", str(path),
+        ], input=pcm.tobytes(), check=True)
+        return path
+
+    def test_recovers_a_known_shift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ref = self._wav(root / "ref.m4a", 60)
+            late = self._wav(root / "late.m4a", 60, offset=5.0)
+            self.assertAlmostEqual(audio_lag_seconds(ref, late), 5.0, delta=.2)
+            self.assertAlmostEqual(audio_lag_seconds(late, ref), -5.0, delta=.2)
+
+    def test_aligned_pair_shorter_than_max_lag_reports_nothing(self):
+        # Measured: a 30s aligned pair searched to +/-30s returned a
+        # confident -23.70s off 6.3s of overlap, and one such pair crashed on
+        # a negative slice. Refusing the search is the only honest answer.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ref = self._wav(root / "ref.m4a", 20)
+            same = self._wav(root / "same.m4a", 20)
+            self.assertEqual(audio_lag_seconds(ref, same, max_lag=30.0), 0.0)
+
+    def test_aligned_pair_with_room_to_search_reports_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ref = self._wav(root / "ref.m4a", 60)
+            same = self._wav(root / "same.m4a", 60)
+            self.assertEqual(audio_lag_seconds(ref, same, max_lag=25.0), 0.0)
 
 
 if __name__ == "__main__":

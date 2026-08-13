@@ -29,28 +29,88 @@ class SegmentDownloadTests(unittest.TestCase):
                 fetch._validate_media(
                     husk, fetch._MIN_SEGMENT_BYTES, need_video=True)
 
-    def test_fragment_fallback_runs_when_the_ffmpeg_route_husks(self):
+    @staticmethod
+    def _fake_fragments(calls):
+        def fragments(vod_url, start, end, target, quality, tries=3,
+                      audio_only=False):
+            calls.append((start, end, audio_only))
+            target.write_bytes(b"\x00" * fetch._MIN_SEGMENT_BYTES * 2)
+            return target
+        return fragments
+
+    def test_fragments_are_the_primary_route(self):
+        # Reversed 2026-08-12: the yt-dlp route returned valid media of the
+        # right length from 10.4s before the requested second, so the route
+        # that cuts on our own clock goes first.
         with tempfile.TemporaryDirectory() as td:
             dest = pathlib.Path(td) / "seg.mp4"
-            rescued = []
+            calls, ytdlp_ran = [], []
 
-            def husking(vod_url, start, end, target, quality):
+            def ytdlp(vod_url, start, end, target, quality):
+                ytdlp_ran.append(start)
                 return self._husk(target)
 
-            def fragments(vod_url, start, end, target, quality, tries=3):
-                rescued.append((start, end))
-                target.write_bytes(b"\x00" * fetch._MIN_SEGMENT_BYTES * 2)
-                return target
-
             with (
-                patch.object(fetch, "_ytdlp_segment", husking),
-                patch.object(fetch, "_fragment_segment", fragments),
+                patch.object(fetch, "_ytdlp_segment", ytdlp),
+                patch.object(fetch, "_fragment_segment",
+                             self._fake_fragments(calls)),
                 patch.object(fetch, "_has_video_stream", return_value=True),
+                patch.object(fetch, "_alignment_error",
+                             lambda *a, **k: (0.0, "")),
                 patch.object(fetch.time, "sleep", lambda *_: None),
             ):
                 fetch.download_segment(
                     "https://twitch.tv/videos/1", 10.0, 35.0, dest, "worst")
-            self.assertEqual(rescued, [(10.0, 35.0)])
+            self.assertEqual(calls, [(10.0, 35.0, False)])
+            self.assertEqual(ytdlp_ran, [])
+
+    def test_ytdlp_backs_up_a_dead_fragment_route(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = pathlib.Path(td) / "seg.mp4"
+            ytdlp_ran = []
+
+            def ytdlp(vod_url, start, end, target, quality):
+                ytdlp_ran.append(start)
+                target.write_bytes(b"\x00" * fetch._MIN_SEGMENT_BYTES * 2)
+                return target
+
+            with (
+                patch.object(fetch, "_ytdlp_segment", ytdlp),
+                patch.object(fetch, "_fragment_segment",
+                             side_effect=fetch.SegmentUnavailable("refused")),
+                patch.object(fetch, "_has_video_stream", return_value=True),
+                patch.object(fetch, "_alignment_error",
+                             lambda *a, **k: (0.0, "")),
+                patch.object(fetch.time, "sleep", lambda *_: None),
+            ):
+                fetch.download_segment(
+                    "https://twitch.tv/videos/1", 10.0, 35.0, dest, "worst")
+            self.assertEqual(ytdlp_ran, [10.0])
+
+    def test_a_download_from_the_wrong_ten_seconds_is_refused(self):
+        """Valid media, of exactly the requested length, from a moment nobody
+        selected. Nothing downstream can tell — so the download must not
+        count as success."""
+        with tempfile.TemporaryDirectory() as td:
+            dest = pathlib.Path(td) / "seg.mp4"
+            calls = []
+            fragments = self._fake_fragments(calls)
+
+            with (
+                patch.object(fetch, "_ytdlp_segment",
+                             lambda v, s, e, t, q: fragments(v, s, e, t, q)),
+                patch.object(fetch, "_fragment_segment", fragments),
+                patch.object(fetch, "_has_video_stream", return_value=True),
+                patch.object(fetch, "_alignment_error",
+                             lambda *a, **k: (-10.4, "")),
+                patch.object(fetch.time, "sleep", lambda *_: None),
+            ):
+                with self.assertRaises(fetch.SegmentUnavailable) as caught:
+                    fetch.download_segment(
+                        "https://twitch.tv/videos/1", 10.0, 35.0, dest,
+                        "worst")
+            self.assertIn("landed -10.4s", str(caught.exception))
+            self.assertFalse(dest.exists())
 
     def test_every_route_dead_raises_and_leaves_no_husk_behind(self):
         with tempfile.TemporaryDirectory() as td:

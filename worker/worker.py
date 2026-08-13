@@ -334,13 +334,19 @@ def process_clip_source(job: dict) -> None:
         master = fetch.download_segment(
             job["vod_url"], float(p["source_start"]), float(p["source_end"]),
             work / "source_1080.mp4", cfg["clips"]["quality"])
-        # The proxy and the master are separate downloads at different
-        # renditions, and Twitch's renditions carry independent segment
-        # boundaries -- yt-dlp cuts the same requested range at a different
-        # frame in each. Measured 10.4s apart on VOD 2837569636, one whole VOD
-        # segment. The user edits against the proxy timeline and the export
-        # cuts the master with those numbers, so the finished clip started
-        # somewhere they never chose. Measure it instead of assuming zero.
+        # The proxy and the master are separate downloads, and one of them can
+        # land on a different second than the range we asked for: the proxy of
+        # job 559b8a20 (VOD 2842062490 at 4296s) started 10.4s early. The user
+        # edits against the proxy timeline and the export cuts the master with
+        # those numbers, so the finished clip started somewhere they never
+        # chose. `fetch.download_segment` now verifies its own alignment, so
+        # this should read 0.0 -- keep measuring anyway, because this is the
+        # one place holding two files that can be compared.
+        #
+        # The cause was NOT renditions carrying independent segment
+        # boundaries, as this comment used to say. Measured 2026-08-12: the
+        # 360p and chunked playlists of that VOD have identical boundaries,
+        # and it was ffmpeg's HLS seek declining to trim. See clipfarm/fetch.py.
         lag = 0.0
         try:
             lag = render.audio_lag_seconds(source, master)
@@ -411,9 +417,12 @@ def process_clip_edit(job: dict) -> None:
     if source_progress.get("master_key"):
         source = download_r2(
             source_progress["master_key"], work / "source.mp4")
-        # Proxy and master are cut at different frames by Twitch's separate
-        # renditions; media_start must be where the MASTER actually begins in
-        # proxy time, or every export lands one segment away from the edit.
+        # The recipe's timestamps are in PROXY time, because that is the
+        # timeline the user dragged. media_start must therefore be where the
+        # master actually begins in proxy time, or every export lands a
+        # segment away from the edit. This stays correct whichever of the two
+        # downloads was the misaligned one -- it only ever aligns master to
+        # proxy, and the user only ever saw the proxy.
         media_start = (float(source_progress["source_start"])
                        + float(source_progress.get("master_lag_s") or 0.0))
     else:

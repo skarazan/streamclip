@@ -277,13 +277,36 @@ def media_reachable(vod_url: str, duration_s: float,
 
 def _ytdlp_segment(vod_url: str, start: float, end: float, dest: Path,
                    quality: str) -> Path:
-    """The fast path: yt-dlp cuts exactly at the requested bounds.
+    """Backup route. It does NOT reliably cut at the requested bounds.
 
     `--download-sections` makes yt-dlp hand the playlist to the FFMPEG
     downloader (verified: "Invoking ffmpeg downloader"), and `--downloader`
-    cannot override that. ffmpeg's HLS reader has no per-fragment retry, so
-    `--retries` below governs a downloader that isn't running — one refused
-    fragment is fatal here. That is why the fallback exists.
+    cannot override that. Two separate problems follow from that, both
+    measured, and together they are why this route is no longer first:
+
+    1. ffmpeg's HLS reader has no per-fragment retry, so `--retries` below
+       governs a downloader that isn't running — one refused fragment is
+       fatal, and it writes a stream-less husk while exiting 0.
+    2. ffmpeg decides for itself where to start, and sometimes simply does not
+       trim. Measured 2026-08-12 on VOD 2842062490: asked for 4296s at 360p it
+       returned content from 4285.6s — the covering fragment's start, 10.3s
+       early — deterministically, at every duration tried.
+
+       Swept over 20 offsets at both renditions, 5 of the 40 downloads landed
+       more than 0.5s away. All four whole-fragment misses (10.3-10.9s early)
+       were at 360p, and every one of them asked for a second sitting more
+       than 10s inside an over-length fragment (10.35-11.00s into 10.95-11.6s
+       fragments), while every offset at most 9.08s into its fragment was
+       exact. That rule does NOT cover the fifth: 1080p at 11500s came back
+       0.80s off, 1.27s into a nominal 10s fragment. So the master rendition
+       is not immune and the depth rule is not the whole mechanism — which is
+       the argument for verifying rather than predicting.
+
+    Asking for the fragment boundary instead does not save it: requesting
+    4285.616 at 360p returned 4274.3s, one fragment earlier again.
+
+    Nothing here is detectable from the file itself — the duration is exactly
+    what was asked for — so `download_segment` verifies the content.
     """
     section = f"*{start:.2f}-{end:.2f}"
     _run([
@@ -316,17 +339,56 @@ def _playlist_url(vod_url: str, quality: str) -> str:
     return urls[-1]
 
 
+def parse_fragment_timeline(
+        text: str) -> tuple[str | None, list[tuple[float, float, str]]]:
+    """Media playlist -> (init segment, [(start, duration, name)]).
+
+    `start` is the cumulative EXTINF clock, and that clock IS the pipeline's
+    time base: the whole-VOD audio behind the transcript is every fragment of
+    the audio rendition concatenated (`download_audio` never seeks), so second
+    N of the transcript is second N of this sum. Measured 2026-08-12 on VOD
+    2842062490 — the audio_only, 360p and chunked playlists agree on 1405
+    fragments and on EXT-X-TWITCH-TOTAL-SECS within 0.04s, so one clock serves
+    every rendition.
+    """
+    import re
+
+    init = next((m.group(1) for m in
+                 (re.search(r'URI="([^"]+)"', line) for line in
+                  text.splitlines() if line.startswith("#EXT-X-MAP"))
+                 if m), None)
+    timeline, clock, pending = [], 0.0, None
+    for line in text.splitlines():
+        if line.startswith("#EXTINF"):
+            pending = float(re.match(r"#EXTINF:([\d.]+)", line).group(1))
+        elif line and not line.startswith("#") and pending is not None:
+            timeline.append((clock, pending, line))
+            clock += pending
+            pending = None
+    return init, timeline
+
+
+def covering_fragments(timeline: list[tuple[float, float, str]],
+                       start: float, end: float
+                       ) -> list[tuple[float, float, str]]:
+    return [f for f in timeline if f[0] < end and f[0] + f[1] > start]
+
+
 def _fragment_segment(vod_url: str, start: float, end: float, dest: Path,
-                      quality: str, tries: int = 3) -> Path:
-    """Fallback: fetch the covering HLS fragments ourselves, then cut.
+                      quality: str, tries: int = 3,
+                      audio_only: bool = False) -> Path:
+    """Fetch the covering HLS fragments ourselves, then cut on our own clock.
 
     This is deliberately the shape of `download_audio`, which keeps working
     from Modal's egress while the ffmpeg path returns husks for the same VOD:
     fetch each fragment over plain HTTP and RETRY it. CloudFront's refusals
     are intermittent, so a retried fragment usually lands.
-    """
-    import re
 
+    It is also the ACCURATE route, which is why it now runs first. See
+    `_ytdlp_segment` for the measurements; the short version is that this cut
+    is arithmetic we do on the same clock the transcript is numbered in, while
+    the other route is ffmpeg's HLS seek deciding for itself where to begin.
+    """
     import httpx
 
     playlist = _playlist_url(vod_url, quality)
@@ -347,23 +409,13 @@ def _fragment_segment(vod_url: str, start: float, end: float, dest: Path,
             raise SegmentUnavailable(f"fragment {name}: {last}")
 
         text = _get(playlist.rsplit("/", 1)[-1]).decode("utf-8", "replace")
-        init = next((m.group(1) for m in
-                     (re.search(r'URI="([^"]+)"', line) for line in
-                      text.splitlines() if line.startswith("#EXT-X-MAP"))
-                     if m), None)
-        timeline, clock, pending = [], 0.0, None
-        for line in text.splitlines():
-            if line.startswith("#EXTINF"):
-                pending = float(re.match(r"#EXTINF:([\d.]+)", line).group(1))
-            elif line and not line.startswith("#") and pending is not None:
-                timeline.append((clock, pending, line))
-                clock += pending
-                pending = None
-        covering = [f for f in timeline if f[0] < end and f[0] + f[1] > start]
+        init, timeline = parse_fragment_timeline(text)
+        covering = covering_fragments(timeline, start, end)
         if not covering:
+            total = timeline[-1][0] + timeline[-1][1] if timeline else 0.0
             raise SegmentUnavailable(
                 f"no fragments cover {start:.0f}-{end:.0f}s "
-                f"(playlist is {clock:.0f}s long)")
+                f"(playlist is {total:.0f}s long)")
 
         # fMP4: the init segment followed by media segments is a valid stream,
         # so a byte concat is all the muxing this needs.
@@ -372,27 +424,18 @@ def _fragment_segment(vod_url: str, start: float, end: float, dest: Path,
             for name in ([init] if init else []) + [f[2] for f in covering]:
                 out.write(_get(name))
 
-    # Re-encode to land exactly on the requested bounds, matching what
-    # --force-keyframes-at-cuts gave the fast path.
-    #
-    # WARNING, measured 2026-08-11: this alignment is only as good as the
-    # EXTINF sum. Twitch playlists carry discontinuities (ads, muted spans),
-    # so the summed clock can drift from real VOD time and this route can land
-    # a fragment (~10s) away from the requested start. An editor session whose
-    # proxy came from yt-dlp and whose master came from HERE was 10.4s apart,
-    # while a session predating this route measured 0.00s. The editor now
-    # measures and compensates (render.audio_lag_seconds), but a plain clip
-    # render has no reference to correct against — so this stays a FALLBACK,
-    # never a preferred path, and it announces itself in the log.
+    # The cut is (requested start - the covering fragment's own start), so the
+    # result begins where the transcript says it should. ffmpeg only ever sees
+    # a local file here, never the playlist, so it has no seek decision to get
+    # wrong.
     offset = max(0.0, start - covering[0][0])
-    print(f"  fragment-route download for {start:.0f}-{end:.0f}s "
-          f"(first fragment at {covering[0][0]:.0f}s, offset {offset:.1f}s) "
-          f"— alignment may differ from the yt-dlp route")
+    codec = (["-vn"] if audio_only else
+             ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+              "-pix_fmt", "yuv420p"])
     r = subprocess.run(
         [ffmpeg_path(), "-y", "-v", "error", "-ss", f"{offset:.3f}",
          "-i", str(blob), "-t", f"{end - start:.3f}",
-         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
+         *codec, "-c:a", "aac", "-b:a", "160k",
          str(dest)],
         capture_output=True, text=True)
     blob.unlink(missing_ok=True)
@@ -401,35 +444,119 @@ def _fragment_segment(vod_url: str, start: float, end: float, dest: Path,
     return dest
 
 
+def _alignment_probe(vod_url: str, start: float, seconds: float,
+                     dest: Path) -> Path | None:
+    """A short AUDIO-ONLY reference for [start, start+seconds] on the playlist
+    clock, cheap enough to run on every segment download.
+
+    Audio fragments are ~150KB against ~3MB for chunked video, and alignment
+    only needs a channel both files share.
+    """
+    for quality in ("Audio_Only", "worst"):
+        try:
+            return _fragment_segment(vod_url, start, start + seconds, dest,
+                                     quality, audio_only=True)
+        except Exception:                                   # noqa: BLE001
+            dest.unlink(missing_ok=True)
+    return None
+
+
+# A cut this far from the requested second is a different moment, not jitter.
+_ALIGN_TOLERANCE_S = 0.5
+_ALIGN_PROBE_S = 30.0
+
+
+def _alignment_error(vod_url: str, start: float, end: float,
+                     got: Path) -> tuple[float, str]:
+    """(seconds off, note). Zero when aligned OR when it cannot be judged.
+
+    Judging costs one audio probe and one correlation. It is close to a
+    tautology for the fragment route — same clock on both sides — so it earns
+    its keep on the yt-dlp route, and on the fragment route it still catches a
+    truncated fetch or a bad cut.
+
+    A quiet range correlates weakly and reports 0.0. Treating "cannot tell" as
+    "fine" is deliberate: this check may reject a clip, and it must never do so
+    on a reading it does not trust.
+    """
+    from . import render
+
+    span = min(_ALIGN_PROBE_S, end - start)
+    if span < 20.0:
+        # Below this there is not enough overlap left to see a one-fragment
+        # shift, and claiming otherwise would be worse than staying quiet.
+        return 0.0, "range too short to verify alignment"
+    probe = got.with_name(got.stem + ".probe.m4a")
+    try:
+        if _alignment_probe(vod_url, start, span, probe) is None:
+            return 0.0, "alignment unverified (no probe available)"
+        return render.audio_lag_seconds(probe, got, max_lag=20.0), ""
+    except Exception as e:                                  # noqa: BLE001
+        return 0.0, f"alignment unverified ({type(e).__name__}: {str(e)[:60]})"
+    finally:
+        probe.unlink(missing_ok=True)
+
+
 def download_segment(vod_url: str, start: float, end: float, dest: Path,
                      quality: str, attempts: int = 2) -> Path:
-    """Download only [start, end] of the VOD as video, cut exactly at bounds.
+    """Download only [start, end] of the VOD as video, cut at those bounds.
 
-    Twitch serves stream-less husks to some egress IPs. Every route is
-    validated before it counts as success, and the caller gets an exception
-    instead of an empty file that breaks a later stage.
+    Twitch serves stream-less husks to some egress IPs, and a route can also
+    return perfectly valid media of the right length from the WRONG ten
+    seconds. Every route is validated for both before it counts as success,
+    and the caller gets an exception instead of a file that quietly breaks a
+    later stage or ships a moment nobody selected.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
 
+    def _try(label: str, route) -> tuple[Path | None, str]:
+        """A route counts as success only if the media is real AND holds the
+        range that was asked for. A clip that starts ten seconds from the
+        selected moment looks exactly like a working download otherwise."""
+        try:
+            got = route()
+            _validate_media(got, _MIN_SEGMENT_BYTES, need_video=True)
+        except (SegmentUnavailable, RuntimeError) as e:
+            dest.unlink(missing_ok=True)
+            return None, f"{label}: {str(e)[:160]}"
+        off, note = _alignment_error(vod_url, start, end, got)
+        if abs(off) > _ALIGN_TOLERANCE_S:
+            # yt-dlp may have appended its own extension, so `got` is not
+            # always `dest`; leaving either behind hands a wrong clip to a
+            # later stage.
+            got.unlink(missing_ok=True)
+            dest.unlink(missing_ok=True)
+            return None, (f"{label}: landed {off:+.1f}s from the requested "
+                          f"{start:.0f}s")
+        if note:
+            print(f"  {label} {start:.0f}-{end:.0f}s — {note}")
+        return got, ""
+
     def _all_routes() -> tuple[Path | None, list[str]]:
         problems: list[str] = []
-        for attempt in range(attempts):
-            try:
-                got = _ytdlp_segment(vod_url, start, end, dest, quality)
-                _validate_media(got, _MIN_SEGMENT_BYTES, need_video=True)
-                return got, problems
-            except (SegmentUnavailable, RuntimeError) as e:
-                problems.append(f"yt-dlp#{attempt + 1}: {str(e)[:160]}")
-                dest.unlink(missing_ok=True)
-                if attempt + 1 < attempts:
-                    time.sleep(2.0 * (attempt + 1))
-        try:
-            got = _fragment_segment(vod_url, start, end, dest, quality)
-            _validate_media(got, _MIN_SEGMENT_BYTES, need_video=True)
+        # Fragments first: that cut is our own arithmetic on the transcript's
+        # clock, and it measured exact everywhere the other route did and in
+        # the places the other route did not. It is also ~2.5x faster on a 40s
+        # 1080p range (44-55s against ~127s), for ~10% more bytes.
+        got, problem = _try(
+            "fragments",
+            lambda: _fragment_segment(vod_url, start, end, dest, quality))
+        if got is not None:
             return got, problems
-        except (SegmentUnavailable, RuntimeError) as e:
-            problems.append(f"fragments: {str(e)[:160]}")
-            dest.unlink(missing_ok=True)
+        problems.append(problem)
+        for attempt in range(attempts):
+            got, problem = _try(
+                f"yt-dlp#{attempt + 1}",
+                lambda: _ytdlp_segment(vod_url, start, end, dest, quality))
+            if got is not None:
+                # The backup route is now the notable one. Grep worker logs
+                # for "backup yt-dlp route" to see how often fragments fail.
+                print(f"  backup yt-dlp route used for "
+                      f"{start:.0f}-{end:.0f}s after: {problems[0][:120]}")
+                return got, problems
+            problems.append(problem)
+            if attempt + 1 < attempts:
+                time.sleep(2.0 * (attempt + 1))
         return None, problems
 
     # Outer pass with LONG backoff. The inner routes retry within ~6 seconds,

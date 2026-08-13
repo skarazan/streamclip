@@ -18,7 +18,7 @@ def _slug(text: str, n: int = 40) -> str:
     return s[:n] or "clip"
 
 
-PIPELINE_VERSION = "v12.1 (action-centred crop, facecam identity verdict, persona guard)"
+PIPELINE_VERSION = "v12.2 (segment cuts verified against the playlist clock)"
 
 
 def _ai_moments(cfg, words, profile, chat, llm, report, vod_work):

@@ -235,6 +235,38 @@ git diff --check
 `tesseract` is optional but recommended; when installed, final artifact QA
 also rejects creator-dashboard UI that persists across sampled frames.
 
+## Quality outcome audit and labels
+
+Refresh the public-channel outcome snapshot without downloading video:
+
+```bash
+~/clipfarm/.venv/bin/python scripts/audit_youtube_shorts.py \
+  --channel @CheeseDipClips --as-of 2026-08-19
+```
+
+The command writes `research/data/cheesedip-shorts.csv` plus a Markdown report.
+Public metadata supports descriptive title/duration comparisons only; it does
+not contain retention curves and cannot prove whether selection or packaging
+caused an outcome.
+
+The known-channel audit refuses to overwrite that evidence snapshot if fewer
+than 60 usable Shorts are returned. This turns upstream markup/API drift into
+a loud failure instead of a plausible-looking partial report. Set
+`--expect-at-least` explicitly when replaying a deliberately smaller fixture.
+
+Pipeline v12.3 records the crop geometry used to keep a visual payoff inside
+the final 9:16 render. The manifest distinguishes `visible`, `indeterminate`,
+and `hidden`; only a localized carrier proven outside the final crop is
+rejected. The worker stores that evidence in `clips.selection_meta`. This is
+a rendering postcondition, not a quality classifier; its replay against the
+six founder labels is documented in
+`research/2026-08-19-payoff-visibility-benchmark.md`.
+
+Apply `infra/migrations/20260819_quality_learning.sql` to persist selection
+metadata and structured completed-clip feedback. The dashboard can request
+1–10 clips and captures a one-tap failure category after a discard. This is a
+review of already selected and shipped clips, not a candidate picker.
+
 ## Postmortem: 2026-07-23 review batch
 
 The review exposed four mistakes that must not recur:

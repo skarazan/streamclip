@@ -19,17 +19,69 @@ export async function PATCH(request, { params }) {
     if (![1, -1].includes(feedback)) {
       return NextResponse.json({ error: "feedback must be 1 or -1" }, { status: 400 });
     }
-    const feedbackResponse = await fetch(
+    const validReasons = new Set([
+      "good_as_is", "weak_moment", "missing_context", "cause_not_visible",
+      "slow_or_redundant", "starts_late", "ends_early", "bad_title",
+      "bad_framing", "technical", "other",
+    ]);
+    const feedbackReason = String(body.feedback_reason || "").trim();
+    if (!validReasons.has(feedbackReason)) {
+      return NextResponse.json(
+        { error: "choose a valid feedback reason" },
+        { status: 400 }
+      );
+    }
+    if (feedback === 1 && feedbackReason !== "good_as_is") {
+      return NextResponse.json(
+        { error: "positive feedback must use good_as_is" },
+        { status: 400 }
+      );
+    }
+    if (feedback === -1 && feedbackReason === "good_as_is") {
+      return NextResponse.json(
+        { error: "discarded clips need a failure reason" },
+        { status: 400 }
+      );
+    }
+    let feedbackResponse = await fetch(
       `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/clips?id=eq.${id}&user_id=eq.${user.id}`,
       {
         method: "PATCH",
         headers: { ...headers(), Prefer: "return=representation" },
-        body: JSON.stringify({ feedback }),
+        body: JSON.stringify({
+          feedback,
+          feedback_reason: feedbackReason,
+          feedback_at: new Date().toISOString(),
+        }),
       }
     );
+    let reasonSaved = feedbackResponse.ok;
+    if (!feedbackResponse.ok) {
+      const detail = await feedbackResponse.text();
+      // Additive migration bridge: keep thumbs usable while the founder
+      // applies 20260819_quality_learning.sql. The response says the richer
+      // reason was not persisted so callers never mistake fallback for data.
+      if (detail.toLowerCase().includes("feedback_reason") ||
+          detail.toLowerCase().includes("feedback_at")) {
+        feedbackResponse = await fetch(
+          `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/clips?id=eq.${id}&user_id=eq.${user.id}`,
+          {
+            method: "PATCH",
+            headers: { ...headers(), Prefer: "return=representation" },
+            body: JSON.stringify({ feedback }),
+          }
+        );
+        reasonSaved = false;
+      }
+    }
     const rows = feedbackResponse.ok ? await feedbackResponse.json() : [];
     return rows.length
-      ? NextResponse.json({ ok: true, feedback })
+      ? NextResponse.json({
+          ok: true,
+          feedback,
+          feedback_reason: feedbackReason,
+          reason_saved: reasonSaved,
+        })
       : NextResponse.json({ error: "clip not found" }, { status: 404 });
   }
   const title = String(body.title || "").trim();

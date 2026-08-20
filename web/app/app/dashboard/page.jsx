@@ -224,7 +224,11 @@ export default async function Dashboard() {
                      className="block text-center mt-3 bg-[#9146FF] hover:bg-[#7a2ff0] text-white text-sm font-bold py-2 rounded-lg">
                     Download
                   </a>
-                  <ClipFeedback clipId={c.id} initial={c.feedback} />
+                  <ClipFeedback
+                    clipId={c.id}
+                    initial={c.feedback}
+                    initialReason={c.feedback_reason}
+                  />
                 </div>
               ))}
               {job.status === "running" && Array.from({

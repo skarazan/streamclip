@@ -1,6 +1,7 @@
 """Render vertical shorts: crop to 9:16, burn hook title + word captions + watermark."""
 
 import subprocess
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .config import ffmpeg_path
@@ -151,7 +152,9 @@ def _even(v: float) -> int:
 
 
 def action_center_x(segment: Path, samples: int = 14,
-                    exclude: tuple[float, float] | None = None) -> float | None:
+                    exclude: tuple[float, float] | None = None,
+                    start: float | None = None,
+                    end: float | None = None) -> float | None:
     """Where the moving thing is, as a fraction of frame width.
 
     The gameplay pane keeps a portrait slice roughly half the frame wide, so a
@@ -175,9 +178,15 @@ def action_center_x(segment: Path, samples: int = 14,
     if not cap.isOpened():
         return None
     n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+    first = max(0, min(n - 1, int((start or 0.0) * fps)))
+    last = n
+    if end is not None:
+        last = max(first + 1, min(n, int(end * fps)))
     prev, energy = None, None
     for i in range(samples):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(n * (i + 0.5) / samples))
+        frame_no = first + int((last - first) * (i + 0.5) / samples)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, min(n - 1, frame_no))
         ok, frame = cap.read()
         if not ok:
             continue
@@ -207,6 +216,128 @@ def action_center_x(segment: Path, samples: int = 14,
     if peak < MIN_ACTION_ENERGY:
         return None
     return float(int(smooth.argmax())) / width
+
+
+@dataclass(frozen=True)
+class GameplayCrop:
+    """Source-pixel crop used for the lower gameplay pane."""
+
+    x: float
+    y: float
+    width: float
+    height: float
+    source_width: int
+    source_height: int
+
+    @property
+    def x1(self) -> float:
+        return self.x / self.source_width
+
+    @property
+    def x2(self) -> float:
+        return (self.x + self.width) / self.source_width
+
+
+@dataclass(frozen=True)
+class PayoffVisibility:
+    """Evidence that the detected payoff carrier survives the 9:16 crop."""
+
+    required: bool
+    status: str                 # not_required | visible | indeterminate | hidden
+    reason: str
+    action_x: float | None = None
+    crop_x1: float | None = None
+    crop_x2: float | None = None
+
+    @property
+    def passed(self) -> bool:
+        return self.status != "hidden"
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def gameplay_crop_geometry(
+        sw: int, sh: int, cam: tuple[float, float, float, float],
+        top_frac: float, action_x: float | None = None) -> GameplayCrop:
+    """Resolve the exact gameplay crop without constructing an ffmpeg graph.
+
+    Rendering and quality validation call the same function so QA cannot
+    certify an imaginary crop that differs from what ffmpeg receives.
+    """
+    top_h = _even(H * top_frac)
+    bot_h = H - top_h
+    g_ar = W / bot_h
+    gw, gh = sh * g_ar, float(sh)
+    if gw > sw:
+        gw, gh = float(sw), sw / g_ar
+    gy = (sh - gh) / 2
+    gx = ((action_x * sw - gw / 2) if action_x is not None
+          else (sw - gw) / 2)
+    gx = max(0.0, min(gx, sw - gw))
+
+    fx, _fy, fw, _fh = cam
+    pad = 0.06 * sw
+    cam_x1 = max(0.0, fx * sw - pad)
+    cam_x2 = min(sw, (fx + fw) * sw + pad)
+    if gx < cam_x2 and gx + gw > cam_x1:
+        left, right = cam_x1, sw - cam_x2
+        want_left = (action_x is not None and action_x * sw < cam_x1
+                     and left >= gw)
+        if want_left or (left >= right and not (
+                action_x is not None and action_x * sw > cam_x2
+                and right >= gw)):
+            span_x, span_w = 0.0, left
+        else:
+            span_x, span_w = cam_x2, right
+        if span_w >= gw:
+            centre = (action_x * sw - gw / 2) if action_x is not None \
+                else span_x + (span_w - gw) / 2
+            gx = min(max(span_x, centre), min(span_x + span_w - gw,
+                                               sw - gw))
+        else:
+            gw, gh = span_w, min(span_w / g_ar, sh)
+            gw = gh * g_ar
+            gx, gy = span_x + (span_w - gw) / 2, (sh - gh) / 2
+    return GameplayCrop(gx, gy, gw, gh, sw, sh)
+
+
+def audit_payoff_visibility(
+        sw: int, sh: int, cam: tuple[float, float, float, float] | None,
+        top_frac: float, action_x: float | None,
+        required: bool) -> PayoffVisibility:
+    """Prove the located visual action is inside the crop that will render.
+
+    `indeterminate` is deliberately distinct from `visible`: motion analysis
+    did not locate a carrier, so the manifest remains honest. It is not a hard
+    rejection because static text/UI payoffs can be real and the detector is
+    intentionally narrow. A located carrier outside the crop fails closed.
+    """
+    if not required:
+        return PayoffVisibility(False, "not_required",
+                                "moment does not depend on a visual payoff")
+    if action_x is None:
+        return PayoffVisibility(
+            True, "indeterminate",
+            "visual payoff required but no moving carrier was localized")
+    if cam:
+        crop = gameplay_crop_geometry(sw, sh, cam, top_frac, action_x)
+        x1, x2 = crop.x1, crop.x2
+    else:
+        crop_w = sh * 9 / 16
+        crop_x = max(0.0, min(action_x * sw - crop_w / 2, sw - crop_w))
+        x1, x2 = crop_x / sw, (crop_x + crop_w) / sw
+    # A small inset protects against putting the carrier exactly on an edge,
+    # where captions/scale rounding can still make the important pixels hard
+    # to read.
+    inset = min(0.025, max(0.0, (x2 - x1) / 10))
+    visible = x1 + inset <= action_x <= x2 - inset
+    return PayoffVisibility(
+        True, "visible" if visible else "hidden",
+        "localized payoff is inside final gameplay crop" if visible else
+        "localized payoff would be outside final gameplay crop",
+        action_x=round(action_x, 5), crop_x1=round(x1, 5),
+        crop_x2=round(x2, 5))
 
 
 def _split_filter(segment: Path, cam: tuple[float, float, float, float],
@@ -241,47 +372,9 @@ def _split_filter(segment: Path, cam: tuple[float, float, float, float],
     cy = max(0, min(cy, sh - ch))
     fit_h = (cw / ch) < (W / top_h)   # tall cam -> fit the pane's height
 
-    # gameplay: tallest crop matching the bottom pane's aspect, centred on the
-    # action when we know where it is. This slice is only about half the frame
-    # wide, so "centre" silently discards both edges — where slot reels, loot
-    # rolls and killfeeds live.
-    g_ar = W / bot_h
-    gw, gh = sh * g_ar, sh
-    if gw > sw:
-        gw, gh = sw, sw / g_ar
-    gy = (sh - gh) / 2
-    gx = ((action_x * sw - gw / 2) if action_x is not None
-          else (sw - gw) / 2)
-    gx = max(0.0, min(gx, sw - gw))
-
-    # the source's own cam overlay already fills the top pane — keep the
-    # gameplay crop clear of it so the streamer isn't shown twice. Sliding
-    # only works when a full-width slice fits beside the cam; big overlays
-    # leave none, so shrink the crop into the widest clear span and let the
-    # gameplay zoom rather than duplicate him.
-    # pad the exclusion: the detected box tracks the head, and a cam overlay
-    # spills past it (shoulders, hood, chair)
-    pad = 0.06 * sw
-    cam_x1, cam_x2 = max(0.0, fx * sw - pad), min(sw, (fx + fw) * sw + pad)
-    if gx < cam_x2 and gx + gw > cam_x1:
-        left, right = cam_x1, sw - cam_x2
-        # prefer the side the action is on, not merely the wider side
-        want_left = (action_x is not None and action_x * sw < cam_x1
-                     and left >= gw)
-        if want_left or (left >= right and not (action_x is not None
-                                                and action_x * sw > cam_x2
-                                                and right >= gw)):
-            span_x, span_w = 0.0, left
-        else:
-            span_x, span_w = cam_x2, right
-        if span_w >= gw:
-            centre = (action_x * sw - gw / 2) if action_x is not None \
-                else span_x + (span_w - gw) / 2
-            gx = min(max(span_x, centre), min(span_x + span_w - gw, sw - gw))
-        else:
-            gw, gh = span_w, min(span_w / g_ar, sh)
-            gw = gh * g_ar
-            gx, gy = span_x + (span_w - gw) / 2, (sh - gh) / 2
+    gameplay = gameplay_crop_geometry(sw, sh, cam, top_frac, action_x)
+    gx, gy, gw, gh = (gameplay.x, gameplay.y, gameplay.width,
+                      gameplay.height)
 
     ccrop = f"crop={_even(cw)}:{_even(ch)}:{int(cx)}:{int(cy)}"
     fit = f"scale=-2:{top_h}" if fit_h else f"scale={W}:-2"

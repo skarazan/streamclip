@@ -200,6 +200,52 @@ class CreditContractTests(unittest.TestCase):
         self.assertNotIn("_legacy_credit_cost", job)
 
 
+class ClipMetadataMigrationTests(unittest.TestCase):
+    def test_selection_metadata_is_persisted_after_migration(self):
+        row = {"id": "clip-1", "selection_meta": {"archetype": "story"}}
+        response = Mock()
+        response.json.return_value = [row]
+
+        with patch.object(worker, "sb", return_value=response) as request:
+            self.assertEqual(worker.insert_clips(row), [row])
+
+        request.assert_called_once_with(
+            "POST", "/rest/v1/clips", json=[row])
+
+    def test_pre_migration_publish_retries_without_selection_metadata(self):
+        row = {"id": "clip-2", "selection_meta": {"archetype": "reaction"}}
+        missing_column = httpx.HTTPStatusError(
+            "missing selection_meta",
+            request=httpx.Request("POST", "https://example.test/clips"),
+            response=httpx.Response(
+                400,
+                text="Could not find the 'selection_meta' column",
+            ),
+        )
+        response = Mock()
+        response.json.return_value = [{"id": "clip-2"}]
+
+        with patch.object(
+            worker, "sb", side_effect=[missing_column, response]
+        ) as request:
+            self.assertEqual(worker.insert_clips(row), [{"id": "clip-2"}])
+
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(
+            request.call_args_list[1].kwargs["json"], [{"id": "clip-2"}]
+        )
+
+    def test_unrelated_insert_error_is_not_hidden(self):
+        failure = httpx.HTTPStatusError(
+            "permission denied",
+            request=httpx.Request("POST", "https://example.test/clips"),
+            response=httpx.Response(403, text="permission denied"),
+        )
+        with patch.object(worker, "sb", side_effect=failure):
+            with self.assertRaises(httpx.HTTPStatusError):
+                worker.insert_clips({"id": "clip-3", "selection_meta": {}})
+
+
 class ContractFilesTests(unittest.TestCase):
     def test_claim_contract_limits_one_running_job_per_user(self):
         migration = (

@@ -49,6 +49,9 @@ create table clips (
   start_s numeric not null,
   end_s numeric not null,
   feedback int,                                -- 1 / -1 / null
+  feedback_reason text,
+  feedback_at timestamptz,
+  selection_meta jsonb not null default '{}', -- source/archetype/crop evidence
   created_at timestamptz not null default now()
 );
 

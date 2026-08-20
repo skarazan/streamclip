@@ -7,9 +7,11 @@ from pathlib import Path
 from clipfarm.config import ffmpeg_path
 from clipfarm.render import (
     _opening_filter,
+    audit_payoff_visibility,
     audio_lag_seconds,
     audio_waveform_peaks,
     build_ass,
+    gameplay_crop_geometry,
     render_editor_proxy,
     render_short,
 )
@@ -22,6 +24,40 @@ class OpeningFilterTests(unittest.TestCase):
             chain = _opening_filter(effect)
             self.assertIn(",fps=30,zoompan=", chain)
             self.assertLess(chain.index("fps=30"), chain.index("zoompan="))
+
+
+class PayoffVisibilityTests(unittest.TestCase):
+    def test_action_crop_keeps_left_and_right_payoffs_visible(self):
+        cam = (.72, .04, .25, .32)
+        for action_x in (.08, .35, .62):
+            with self.subTest(action_x=action_x):
+                audit = audit_payoff_visibility(
+                    1920, 1080, cam, .42, action_x, required=True)
+                self.assertEqual(audit.status, "visible", audit.reason)
+                self.assertLessEqual(audit.crop_x1, action_x)
+                self.assertGreaterEqual(audit.crop_x2, action_x)
+
+    def test_unknown_visual_carrier_is_recorded_not_claimed_visible(self):
+        audit = audit_payoff_visibility(
+            1920, 1080, (.72, .04, .25, .32), .42, None, required=True)
+        self.assertTrue(audit.passed)
+        self.assertEqual(audit.status, "indeterminate")
+
+    def test_hidden_carrier_fails_closed(self):
+        # A left-edge carrier can be displaced when the facecam occupies that
+        # same edge and the remaining left span is too narrow. Keep this a
+        # physically valid 0..1 carrier location, not a synthetic negative x.
+        audit = audit_payoff_visibility(
+            1920, 1080, (0.0, .1, .05, .2), .42, 0.0, required=True)
+        self.assertFalse(audit.passed)
+        self.assertEqual(audit.status, "hidden")
+
+    def test_render_and_audit_share_crop_geometry(self):
+        crop = gameplay_crop_geometry(
+            1920, 1080, (.72, .04, .25, .32), .42, .2)
+        self.assertGreater(crop.width, 0)
+        self.assertLessEqual(crop.x1, .2)
+        self.assertGreaterEqual(crop.x2, .2)
 
 
 class EditorProxyTests(unittest.TestCase):

@@ -437,6 +437,38 @@ batch instead of refining it. When a cut is approved, **pin it**
 9. **Modal production rollout** — queue/schema code exists, but deployment and
    cost policy still require explicit approval.
 
+### Quality-learning foundation (2026-08-19)
+
+The latest evidence changes the order above:
+
+- The public CheeseDipClips snapshot now contains 66 Shorts. Across the 63
+  posts at least seven days old, duration vs log-views has Spearman
+  `rho=-0.227`: a weak association, not permission to penalize duration.
+  Several 40–55s clips are among the winners. The reproducible snapshot and
+  caveats live in `research/2026-08-19-shorts-outcome-audit.md`.
+- Final crop planning now probes motion only around the verified
+  trigger-to-button passage, calculates the exact gameplay crop used by
+  ffmpeg, and records `payoff_visibility` in the manifest. A localized visual
+  carrier outside that crop is rejected; an unlocalized/static carrier is
+  recorded honestly as `indeterminate`, not falsely certified. Replaying all
+  six existing founder labels proved this does **not** separate good moments
+  from bad ones: it is a render invariant, not a selection signal. Results are
+  in `research/2026-08-19-payoff-visibility-benchmark.md`.
+- Completed clips retain automatic selection and now accept one-tap
+  keep/discard feedback. Discards require a structured failure reason so
+  `weak_moment`, `missing_context`, `cause_not_visible`, boundary, packaging,
+  framing, and technical failures no longer collapse into one thumbs-down.
+- The service stores selection evidence in `clips.selection_meta`. Apply
+  `infra/migrations/20260819_quality_learning.sql` before deploying v12.3;
+  web/worker compatibility fallbacks keep clips usable during rollout but do
+  not preserve the richer label/evidence fields until the migration lands.
+- The dashboard and job contract now accept 1–10 requested clips, matching the
+  worker's existing 10-clip bench strategy. Shipping fewer remains valid when
+  verified candidates are exhausted.
+- Do not build the proposed full multimodal semantic editor yet. Opus's review
+  requires at least six creators, 200 labels, a hard candidate/cost cap, and a
+  predicted held-out lift before that research resumes.
+
 ---
 
 ## 9. Working agreement for whoever picks this up

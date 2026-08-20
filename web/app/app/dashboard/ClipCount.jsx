@@ -60,7 +60,7 @@ export default function ClipCount({ initial }) {
         )}
       </span>
       <div className="flex rounded-lg border border-[#2e2e4a] bg-[#15151f] overflow-hidden">
-        {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
           <button key={n} type="button" onClick={() => update(n)}
             className={`px-3 py-1.5 font-bold ${
               n === value ? "bg-[#9146FF] text-white" : "text-gray-400 hover:text-white"

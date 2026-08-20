@@ -769,3 +769,43 @@ clips are too short to judge.
 Fourth standing rule, and the fifth defect of this class in three weeks: a
 stage that can produce nothing must say so — and a stage that produces a
 NUMBER must say how much evidence is under it.
+
+## 2026-08-19 — Learn from shipped clips before building a semantic judge
+
+The proposed archetype-aware semantic editor correctly diagnosed that duration
+is an output and semantic contribution matters more than silence. Opus rejected
+Phases 2–4 because the benchmark has only two usable creators, the proposed
+multimodal shortlist was unbounded, and no expected lift was stated. That
+review is preserved in `research/2026-08-19-review-archetype-editor.md`.
+
+Decision: implement only the cheap, falsifiable prerequisites.
+
+1. Snapshot all public CheeseDipClips outcomes with a reproducible script.
+   The channel now has 66 public Shorts; 63 are at least seven days old.
+   Duration vs log-views is only `rho=-0.227`, so no universal duration
+   penalty is introduced. A 55s clip is in the top five. Public data cannot
+   causally separate selection from packaging; the report says so rather than
+   turning correlation into a rule.
+2. Audit payoff visibility as geometry. Motion is localized around the
+   verified trigger-to-button interval, then checked against the exact crop
+   function used by render. Located-but-hidden carriers fail closed. No motion
+   result is `indeterminate`, because static UI and model uncertainty are not
+   grounds for a false rejection.
+3. Collect labels as a by-product of reviewing completed clips. Dislikes carry
+   one structured reason; likes record `good_as_is`. This preserves automatic
+   discovery and avoids a separate founder labeling chore.
+4. Align the dashboard's count range (1–10) with the worker's existing
+   10-clip configuration. More rendered outputs expose more of a weakly ranked
+   bench, but the pipeline may still abstain instead of inventing filler.
+
+Post-build falsification against all six existing founder labels is recorded
+in `research/2026-08-19-payoff-visibility-benchmark.md`. It separated zero of
+four discards from the two keeps: the new action crop made each localized game
+carrier visible. Therefore this feature earns its place only as a render
+postcondition and telemetry field, not as a taste or moment-quality signal.
+The structured `cause_not_visible` feedback reason is its operational test.
+
+The richer semantic pass remains gated on `>=6` creators and `>=200` labels.
+Before implementation it must predict a creator-held-out improvement over the
+0.333 loudness-ranked candidate-pool baseline and state the dollar/time cap per
+VOD.

@@ -10,6 +10,7 @@ from clipfarm.quality import (
     remove_idle_gaps,
     needs_visual_bridge, should_cut_idle_gap,
     metadata_violations, remap_profile, retained_duration_reason,
+    visual_payoff_required,
     verify_arc,
 )
 from clipfarm.transcribe import Word
@@ -134,6 +135,11 @@ class ArcTests(unittest.TestCase):
             np.array([2, 3, 4, 10, 11]))
         self.assertLess(duration_budget("stinger")[1],
                         duration_budget("rage_arc")[1])
+
+    def test_game_causes_require_visibility_without_length_assumptions(self):
+        self.assertTrue(visual_payoff_required("game", "speech"))
+        self.assertTrue(visual_payoff_required("streamer", "visual"))
+        self.assertFalse(visual_payoff_required("streamer", "speech"))
 
     def test_duration_limit_applies_to_final_retained_story(self):
         # Long source span, but a valid 38-second edit after dead-air removal.

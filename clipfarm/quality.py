@@ -76,6 +76,18 @@ def low_substance_reason(decision: str, button_kind: str,
 GAME_TRIGGER_ROLES = {"game", "npc", "video"}
 
 
+def visual_payoff_required(trigger_role: str, button_kind: str) -> bool:
+    """Whether the final 9:16 crop must preserve source-screen evidence.
+
+    This is intentionally broader than `button_kind == visual`: a streamer can
+    deliver a spoken reaction whose cause is still a slot reel, score, menu, or
+    NPC event. Unknown motion remains auditable rather than auto-rejected; a
+    localized carrier that falls outside the crop fails closed in render QA.
+    """
+    return ((trigger_role or "").lower() in GAME_TRIGGER_ROLES
+            or (button_kind or "").lower() == "visual")
+
+
 def cap_game_triggered(roles: list[str], want: int) -> list[int]:
     """Indices to keep so a batch is not made entirely of game-triggered picks.
 

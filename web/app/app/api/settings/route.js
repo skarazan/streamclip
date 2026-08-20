@@ -29,8 +29,8 @@ export async function POST(request) {
   const patch = {};
   if ("clips_per_stream" in body) {
     const n = Math.round(Number(body.clips_per_stream));
-    if (!(n >= 1 && n <= 8)) {
-      return NextResponse.json({ error: "clips_per_stream must be 1-8" }, { status: 400 });
+    if (!(n >= 1 && n <= 10)) {
+      return NextResponse.json({ error: "clips_per_stream must be 1-10" }, { status: 400 });
     }
     patch.clips_per_stream = n;
   }

@@ -84,7 +84,7 @@ export async function POST(request) {
     );
   }
   const requestedCount = Number.isInteger(Number(body.clips_per_stream)) &&
-    Number(body.clips_per_stream) >= 1 && Number(body.clips_per_stream) <= 8
+    Number(body.clips_per_stream) >= 1 && Number(body.clips_per_stream) <= 10
       ? Number(body.clips_per_stream)
       : (users[0].clips_per_stream || 3);
 

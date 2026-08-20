@@ -9,7 +9,7 @@ export const metadata = {
 const faqs = [
   ["How are moments selected?", "Viewer clips and chat activity nominate moments when available. Audio and transcript signals cover small channels. An AI editor proposes the story, but timestamped setup and payoff evidence must verify before a clip ships."],
   ["What if my channel has almost no viewers?", "That is a core use case. StreamClip’s Tier C path uses transcript, voice-energy change, chat when present, and story verification without requiring community clips."],
-  ["Does one credit guarantee five clips?", "No. One credit pays for a complete VOD scan, targeting up to five verified clips. You may request one through eight, but StreamClip ships fewer rather than inventing filler."],
+  ["Does one credit guarantee five clips?", "No. One credit pays for a complete VOD scan, targeting up to five verified clips. You may request one through ten, but StreamClip ships fewer rather than inventing filler."],
   ["Can I fix a cut?", "Yes. Every delivered clip has a low-resolution timeline editor. You can extend the story, restore or resize automatic cuts, add your own cut, and perform one final 1080×1920 export."],
   ["Which platforms are supported?", "Twitch VODs are supported now. Output is formatted for YouTube Shorts, TikTok, and Reels. Kick ingestion and automatic social posting are future features."],
   ["Who owns the clips?", "You retain ownership of your stream content. StreamClip processes content from the Twitch channel you authorize and does not claim ownership."],

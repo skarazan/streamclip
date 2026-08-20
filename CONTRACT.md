@@ -25,6 +25,11 @@ Copy it unchanged into the extracted `streamclip-web` repository.
   delayed when the newest heartbeat is more than five minutes old.
 - Credits move only through database RPCs. A balance read is advisory; an RPC
   reservation is authoritative.
+- `clips.feedback` is `1|-1|null`; `feedback_reason` records the structured
+  keep/discard reason and `feedback_at` records label time.
+- `clips.selection_meta` is additive worker evidence (pipeline version,
+  source, archetype, trigger/button type, duration, and payoff crop audit).
+  Old readers ignore it; worker/web both tolerate its absence during migration.
 
 ## R2 contract
 

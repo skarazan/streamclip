@@ -288,6 +288,23 @@ def get_clip(clip_id: str, user_id: str) -> dict:
     return rows[0]
 
 
+def insert_clips(rows: dict | list[dict]) -> list[dict]:
+    """Insert clips across the additive selection_meta migration rollout."""
+    payload = [rows] if isinstance(rows, dict) else rows
+    try:
+        return sb("POST", "/rest/v1/clips", json=payload).json()
+    except httpx.HTTPStatusError as error:
+        body = error.response.text.lower()
+        if (error.response.status_code not in (400, 404)
+                or "selection_meta" not in body):
+            raise
+        print("clips.selection_meta migration pending -> publishing with "
+              "legacy clip rows")
+        legacy = [{k: v for k, v in row.items() if k != "selection_meta"}
+                  for row in payload]
+        return sb("POST", "/rest/v1/clips", json=legacy).json()
+
+
 def process_clip_source(job: dict) -> None:
     from concurrent.futures import ThreadPoolExecutor
     from clipfarm import fetch, render, transcribe
@@ -763,12 +780,22 @@ def process(job: dict) -> None:
             slot = int(rendered.get("_candidate_index", len(published_rows))) + 1
             key = f"{job['user_id']}/{job['id']}/{slot:02d}.mp4"
             upload_r2(Path(rendered["file"]), key)
-            row = sb("POST", "/rest/v1/clips", json={
+            row = insert_clips({
                 "job_id": job["id"], "user_id": job["user_id"],
                 "r2_key": key, "title": rendered["title"],
                 "hook": rendered["hook"], "score": rendered["score"],
                 "start_s": rendered["start_s"], "end_s": rendered["end_s"],
-            }).json()[0]
+                "selection_meta": {
+                    "pipeline_version": getattr(
+                        pipeline, "PIPELINE_VERSION", "unknown"),
+                    "source": rendered.get("source"),
+                    "archetype": rendered.get("archetype"),
+                    "trigger_role": rendered.get("trigger_role"),
+                    "button_kind": rendered.get("button_kind"),
+                    "duration_s": rendered.get("duration_s"),
+                    "payoff_visibility": rendered.get("payoff_visibility"),
+                },
+            })[0]
             rendered["_published"] = True
             rendered["_clip_id"] = row["id"]
             rendered["_r2_key"] = key
@@ -809,10 +836,20 @@ def process(job: dict) -> None:
             "job_id": job["id"], "user_id": job["user_id"], "r2_key": key,
             "title": c["title"], "hook": c["hook"], "score": c["score"],
             "start_s": c["start_s"], "end_s": c["end_s"],
+            "selection_meta": {
+                "pipeline_version": getattr(
+                    pipeline, "PIPELINE_VERSION", "unknown"),
+                "source": c.get("source"),
+                "archetype": c.get("archetype"),
+                "trigger_role": c.get("trigger_role"),
+                "button_kind": c.get("button_kind"),
+                "duration_s": c.get("duration_s"),
+                "payoff_visibility": c.get("payoff_visibility"),
+            },
         })
     inserted = list(published_rows)
     if clip_rows:
-        inserted.extend(sb("POST", "/rest/v1/clips", json=clip_rows).json())
+        inserted.extend(insert_clips(clip_rows))
     recipes = {}
     rendered_by_id = {
         c.get("_clip_id"): c for c in result["clips"] if c.get("_clip_id")}

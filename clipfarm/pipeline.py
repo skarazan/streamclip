@@ -18,7 +18,7 @@ def _slug(text: str, n: int = 40) -> str:
     return s[:n] or "clip"
 
 
-PIPELINE_VERSION = "v12.2 (segment cuts verified against the playlist clock)"
+PIPELINE_VERSION = "v12.3 (payoff visibility audited in the final 9:16 crop)"
 
 
 def _ai_moments(cfg, words, profile, chat, llm, report, vod_work):
@@ -826,13 +826,39 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
         action_x = None
         if style.get("action_crop", True):
             try:
+                probe_start = max(
+                    0.0, source_arc.trigger.start - source_start - 1.0)
+                probe_end = min(
+                    m.end - source_start,
+                    source_arc.button.end - source_start + 1.0)
                 action_x = render.action_center_x(
-                    seg, exclude=((cam[0], cam[0] + cam[2]) if cam else None))
+                    seg,
+                    exclude=((cam[0], cam[0] + cam[2]) if cam else None),
+                    start=probe_start, end=probe_end)
             except Exception as e:      # framing is never worth a failed job
                 print(f"  action-crop probe failed ({type(e).__name__}) "
                       f"-> default framing")
             if action_x is not None:
                 print(f"  action-centred crop at {action_x:.0%} of frame width")
+        visibility_required = quality.visual_payoff_required(
+            m.trigger_role, m.button_kind)
+        try:
+            source_width, source_height = render._dims(seg)
+            visibility = render.audit_payoff_visibility(
+                source_width, source_height, cam, top_frac, action_x,
+                visibility_required)
+        except Exception as e:
+            visibility = render.PayoffVisibility(
+                visibility_required, "indeterminate",
+                f"visibility audit unavailable: {type(e).__name__}")
+        attempt["payoff_visibility"] = visibility.to_dict()
+        if not visibility.passed:
+            attempt["rejected"] = [visibility.reason]
+            with manifest_lock:
+                manifest["attempts"].append(attempt)
+            print(f"  rejected before render: {visibility.reason}")
+            src_seg.unlink(missing_ok=True)
+            return None
         final = render.render_short(seg, ass, out_dir / f"{name}.mp4",
                                     style.get("crop", "center"),
                                     cam=cam, top_frac=top_frac,
@@ -877,6 +903,11 @@ def run(cfg: dict, vod_url: str | None = None) -> dict:
                   "score": m.score, "start_s": m.start, "end_s": m.end,
                   "_candidate_index": cand_i,
                   "duration_s": media_qa.duration,
+                  "source": m.source,
+                  "archetype": m.archetype,
+                  "trigger_role": m.trigger_role,
+                  "button_kind": m.button_kind,
+                  "payoff_visibility": visibility.to_dict(),
                   "edit_recipe": {
                       "source_start": source_start,
                       "source_end": m.end,

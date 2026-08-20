@@ -22,7 +22,8 @@ For the legacy monorepo-only development bridge, explicitly set
 
 ## Deployment order
 
-1. Apply `infra/migrations/20260725_service_contract.sql` from the worker repo.
+1. Apply `infra/migrations/20260725_service_contract.sql`, then
+   `infra/migrations/20260819_quality_learning.sql`, from the worker repo.
 2. Deploy the worker so heartbeat and atomic credit RPCs are active.
 3. Configure the environment variables listed in `.env.example`.
 4. Deploy this directory to Vercel.
